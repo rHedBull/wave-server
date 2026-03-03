@@ -6,40 +6,54 @@ The wave executor implements code and creates passing tests, but there's no defi
 
 ## Solution
 
-An end-to-end pipeline from wave execution completion to production deployment, leveraging GitHub's native environment and protection infrastructure. The only custom piece is an automated review agent — everything else uses existing Git hosting capabilities.
+An end-to-end pipeline from wave execution completion to production deployment, leveraging GitHub's native environment and protection infrastructure. Two custom review agents gate progression — everything else uses existing Git hosting capabilities.
 
 ## Flow
 
 ```
-Wave execution completes
+Wave execution completes (feature branch)
         |
         v
-  PR created (by wave server)
+  PR: feature/* → main
         |
         v
-  Review agent auto-reviews PR
-  (GitHub Action, spawns Claude Code)
+  ┌─ Gate 1: Code Review ──────────────────────────────┐
+  │  Code Review Agent (GitHub Action)                   │
+  │  Focus: code quality, spec adherence, test coverage, │
+  │         correctness, project conventions              │
+  │  + CI checks (tests, linting, type checks, evals)    │
+  └──────────────────────────────────────────────────────┘
         |
-        +-- request changes --> wave server notified, can re-execute
-        +-- approved -->
+        +-- request changes → wave server notified, can re-execute
+        +-- approved + CI passes → merge to main
                 |
                 v
-          CI checks run
-          (tests, linting, type checks, evals)
+          Deploy to staging (auto)
                 |
                 v
-          GitHub Environment gates
-          |-- dev:      auto-merge if checks pass
-          |-- staging:  agent-approved (custom protection rule)
-          |-- prod:     human-approved (required reviewers)
-                |
-                v
-          Third-party gates (optional)
-          (Sentry, Datadog, Honeycomb — error rates, monitors)
-                |
-                v
-          Deployed
+  ┌─ Gate 2: Deployment Review ─────────────────────────┐
+  │  Deployment Review Agent (GitHub custom protection    │
+  │  rule or Action, runs against live staging)           │
+  │  Focus: feature completeness, availability,           │
+  │         reliability, security, performance            │
+  │  + Third-party gates (optional)                       │
+  │    Sentry — error rates, Datadog — monitors,          │
+  │    Honeycomb — latency                                │
+  └──────────────────────────────────────────────────────┘
+        |
+        v
+  ┌─ Gate 3: Human Approval ────────────────────────────┐
+  │  Required reviewer on production environment          │
+  └──────────────────────────────────────────────────────┘
+        |
+        v
+  Deploy to production
 ```
+
+Three stages, each with a distinct purpose:
+1. **Code correctness** — is the code right? (agent + CI)
+2. **Operational readiness** — does it work in a real environment? (agent + third-party tools)
+3. **Human sign-off** — final go/no-go (human)
 
 ## Components
 
@@ -50,9 +64,9 @@ When a wave execution completes successfully, the wave server:
 - PR description includes: execution ID, sequence name, spec summary, task results
 - Links back to the dashboard execution view
 
-### 2. Review Agent (GitHub Action)
+### 2. Code Review Agent (GitHub Action)
 
-A GitHub Action triggered on `pull_request` opened/synchronize events:
+A GitHub Action triggered on `pull_request` opened/synchronize events targeting `main`:
 - Spawns a Claude Code session with a review prompt
 - Reviews the full diff against the spec/plan context
 - Posts a GitHub PR review via `gh pr review`:
@@ -61,19 +75,26 @@ A GitHub Action triggered on `pull_request` opened/synchronize events:
 
 The review agent is a *different* agent than the one that wrote the code. It has no shared context — it reviews from scratch based on the diff, spec, and plan.
 
-### 3. Deployment Environments (GitHub native)
+### 3. Deployment Review Agent (GitHub custom protection rule or Action)
+
+Runs after merge to `main` triggers a staging deployment:
+- Verifies the deployed staging environment is functional
+- Checks feature completeness against the spec
+- Evaluates availability, reliability, security posture
+- Can run smoke tests, health checks, or security scans against staging
+
+### 4. Deployment Environments (GitHub native)
 
 Configured per-repo in GitHub:
 
-| Environment | Protection rules | Who approves |
-|-------------|-----------------|--------------|
-| **dev** | Required status checks (CI passes) | Auto-merge |
-| **staging** | Required status checks + wait timer (optional) | Agent or auto |
-| **production** | Required status checks + required reviewers | Human |
+| Environment | Trigger | Protection rules | Who approves |
+|-------------|---------|-----------------|--------------|
+| **staging** | Merge to `main` | Required status checks | Auto-deploy, then reviewed by deployment agent |
+| **production** | Promotion from staging | Required reviewers + deployment agent approval | Human |
 
-### 4. Third-Party Protection Rules (GitHub Apps, optional)
+### 5. Third-Party Protection Rules (GitHub Apps, optional)
 
-Existing tools gate deployments based on operational health:
+Existing tools gate the staging → production promotion based on operational health:
 - **Sentry** — no new errors above threshold
 - **Datadog** — monitors green
 - **Honeycomb** — latency/error rate within bounds
@@ -85,17 +106,15 @@ These are standard GitHub App integrations — not reimplemented.
 ```
 feature/wave-{sequence-name}     <-- wave executor works here
         |
-        v  PR (auto-created)
-develop / main                   <-- review agent reviews, CI runs
+        v  PR (auto-created, code review agent + CI)
+main                             <-- merge triggers staging deploy
         |
-        v  environment: staging
-staging branch (if used)
+        v  environment: staging (deployment review agent + third-party gates)
         |
         v  environment: production (human approval)
-production
 ```
 
-Branch protection rules, merge requirements, and environment associations are configured in GitHub — not in the wave server.
+Single trunk branch (`main`). No `dev` or `staging` branches — environments are deployment targets, not branches. Branch protection rules and environment associations configured in GitHub.
 
 ## Wave Server Integration Points
 
@@ -126,41 +145,64 @@ GET    /api/executions/{id}/pr-status    # Get current PR status
 
 ## Review Agent Details
 
-### Implementation
+### Code Review Agent
 
-GitHub Action workflow (`.github/workflows/agent-review.yml`):
+GitHub Action workflow (`.github/workflows/code-review.yml`):
 
 ```yaml
 on:
   pull_request:
     types: [opened, synchronize]
+    branches: [main]
 
 jobs:
-  agent-review:
+  code-review:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.labels.*.name, 'wave-execution')
+    # Runs on all PRs — human and agent-generated
     steps:
       - uses: actions/checkout@v4
-      - name: Run review agent
+      - name: Run code review agent
         run: |
-          claude --output-format stream-json -p "Review this PR: $(gh pr diff ${{ github.event.pull_request.number }})"
+          claude -p "Review this PR against the spec and plan..."
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-(Simplified — actual prompt would include spec/plan context, review criteria, and structured output format for the review.)
+(Simplified — actual prompt includes spec/plan context and structured output format.)
 
-### Review Criteria
-
-The review agent evaluates:
+**Evaluates:**
 - Does the implementation match the spec/plan?
 - Are tests adequate for the changes?
-- Are there obvious bugs, security issues, or regressions?
+- Are there obvious bugs or regressions?
 - Does the code follow project conventions?
+
+### Deployment Review Agent
+
+GitHub Action or custom deployment protection rule, triggered after staging deployment:
+
+**Evaluates:**
+- Feature completeness — does staging behave as the spec describes?
+- Availability — health checks pass, endpoints respond
+- Reliability — no crash loops, error rates normal
+- Security — no new vulnerabilities, auth works correctly
+- Performance — response times within acceptable bounds
+
+Can run automated checks (smoke tests, health endpoints, security scans) and/or spawn a Claude Code session to reason about the deployment.
 
 ### Labeling
 
-PRs created by the wave server are labeled `wave-execution` so the review action only triggers on agent-generated PRs (not human PRs, unless desired).
+PRs created by the wave server are labeled `wave-execution` for traceability (linking back to execution ID, sequence, dashboard). The code review agent runs on all PRs regardless of label — human and agent-generated alike.
+
+## Expensive Checks (evals, load tests, AI regression)
+
+Some checks are too slow for the PR CI gate (minutes to hours). These can run in two modes:
+
+- **Non-blocking on PR** — runs in parallel with code review, results visible but don't block merge. Useful for early signal.
+- **Blocking on staging** — runs after staging deploy, blocks production promotion. Required for high-confidence checks.
+
+Which checks run where is configurable per-repo via GitHub Actions workflows. The deployment review agent considers all available results (both PR-level and staging-level) when making its assessment.
+
+This is standard GitHub Actions configuration — no wave server involvement.
 
 ## What This Spec Does NOT Cover
 
@@ -173,7 +215,8 @@ PRs created by the wave server are labeled `wave-execution` so the review action
 ## Implementation Order
 
 1. **PR creation** — wave server creates PR on execution completion (small addition to wave server)
-2. **Review agent** — GitHub Action that reviews wave-generated PRs
-3. **Environment setup** — configure GitHub environments with appropriate protection rules
-4. **Dashboard integration** — show PR status on execution detail page
-5. **Feedback loop** (optional) — wave server reacts to "changes requested" by triggering re-execution
+2. **Code review agent** — GitHub Action that reviews wave-generated PRs on `main`
+3. **Environment setup** — configure GitHub environments (staging + production) with protection rules
+4. **Deployment review agent** — GitHub Action or custom protection rule for staging verification
+5. **Dashboard integration** — show PR status and deployment status on execution detail page
+6. **Feedback loop** (optional) — wave server reacts to "changes requested" by triggering re-execution
