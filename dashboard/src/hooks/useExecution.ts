@@ -7,10 +7,10 @@ export function useExecution(executionId: string) {
   const [execution, setExecution] = useState<Execution | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [tasks, setTasks] = useState<Record<string, unknown>[]>([]);
-  const [loading, setLoading] = useState(true);
   const lastEventTime = useRef<string | undefined>(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const loading = execution === null;
   const isActive = execution?.status === "queued" || execution?.status === "running";
 
   const fetchExecution = useCallback(async () => {
@@ -43,11 +43,13 @@ export function useExecution(executionId: string) {
     }
   }, [executionId]);
 
-  // Initial load
+  // Initial load — fetchers set state via callbacks, which is the intended pattern
   useEffect(() => {
-    Promise.all([fetchExecution(), fetchEvents(), fetchTasks()]).then(() =>
-      setLoading(false)
-    );
+    /* eslint-disable react-hooks/set-state-in-effect */
+    fetchExecution();
+    fetchEvents();
+    fetchTasks();
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [fetchExecution, fetchEvents, fetchTasks]);
 
   // Polling
