@@ -19,7 +19,7 @@ trap cleanup EXIT INT TERM
 # Start backend
 echo "Starting backend (http://localhost:8000) ..."
 cd "$PROJECT_DIR"
-uv run main.py > "$LOG_DIR/backend.log" 2>&1 &
+uv run uvicorn wave_server.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 
 # Build and start dashboard in production mode
