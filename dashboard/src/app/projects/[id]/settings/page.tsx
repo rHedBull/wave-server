@@ -11,6 +11,7 @@ import Header from "@cloudscape-design/components/header";
 import Input from "@cloudscape-design/components/input";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import AppShell from "@/components/AppShell";
+import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import { usePolling } from "@/hooks/usePolling";
 import { api, ProjectRepository, ProjectContextFile } from "@/lib/api";
 
@@ -40,6 +41,7 @@ export default function ProjectSettingsPage({
   const [repoLabel, setRepoLabel] = useState("");
   const [ctxPath, setCtxPath] = useState("");
   const [ctxDesc, setCtxDesc] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   if (project && !initialized) {
     setName(project.name);
@@ -222,8 +224,20 @@ export default function ProjectSettingsPage({
         </Container>
 
         <Container header={<Header variant="h2">Danger zone</Header>}>
-          <Button onClick={handleDelete}>Delete project</Button>
+          <span className="btn-danger">
+            <Button variant="primary" onClick={() => setShowDeleteConfirm(true)}>
+              Delete project
+            </Button>
+          </span>
         </Container>
+
+        <ConfirmDeleteModal
+          visible={showDeleteConfirm}
+          onDismiss={() => setShowDeleteConfirm(false)}
+          onConfirm={handleDelete}
+          resourceName={project.name}
+          resourceType="project"
+        />
       </SpaceBetween>
     </AppShell>
   );

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wave_server.db import get_db
-from wave_server.models import Project, Sequence
+from wave_server.models import Command, Event, Execution, Project, Sequence
 from wave_server.schemas import SequenceCreate, SequenceResponse, SequenceUpdate
 from wave_server import storage
 
@@ -67,6 +67,29 @@ async def update_sequence(
     await db.commit()
     await db.refresh(seq)
     return seq
+
+
+@router.delete("/sequences/{sequence_id}", status_code=204)
+async def delete_sequence(sequence_id: str, db: AsyncSession = Depends(get_db)):
+    seq = await db.get(Sequence, sequence_id)
+    if not seq:
+        raise HTTPException(404, "Sequence not found")
+    # Cascade: delete executions -> events/commands
+    exec_ids = await db.execute(
+        select(Execution.id).where(Execution.sequence_id == sequence_id)
+    )
+    for (exec_id,) in exec_ids.all():
+        await db.execute(
+            Event.__table__.delete().where(Event.execution_id == exec_id)
+        )
+        await db.execute(
+            Command.__table__.delete().where(Command.execution_id == exec_id)
+        )
+        await db.execute(
+            Execution.__table__.delete().where(Execution.id == exec_id)
+        )
+    await db.delete(seq)
+    await db.commit()
 
 
 # --- Spec ---

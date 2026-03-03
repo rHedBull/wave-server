@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "@cloudscape-design/global-styles/index.css";
+import "./globals.css";
 import AgentationOverlay from "@/components/Agentation";
 
 export const metadata: Metadata = {
