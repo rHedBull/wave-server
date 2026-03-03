@@ -14,3 +14,10 @@ data/
 
 # Environment
 .env
+
+# pi handoff files (temporary)
+HANDOFF-*.md
+
+# pi wip & ideas (personal, not committed by default)
+WIP.md
+IDEAS.md

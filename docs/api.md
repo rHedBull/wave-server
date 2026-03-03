@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints are prefixed with `/api`. No authentication required for v1 (localhost).
+All endpoints are prefixed with `/api`. No authentication required for v1 (localhost). See [Architecture](architecture.md) for the system overview and data model behind these endpoints.
 
 ## Health
 
