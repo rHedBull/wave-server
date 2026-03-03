@@ -9,13 +9,13 @@ mkdir -p "$LOG_DIR"
 
 # Kill any existing processes on our ports
 for port in 8000 3000; do
-    pid=$(lsof -ti :"$port" -sTCP:LISTEN 2>/dev/null || true)
-    if [[ -n "$pid" ]]; then
+    pids=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+    for pid in $pids; do
         echo "Killing existing process on port $port (PID $pid) ..."
         kill "$pid" 2>/dev/null
-        sleep 1
-    fi
+    done
 done
+[[ -n "${pids:-}" ]] && sleep 1
 
 cleanup() {
     echo "Shutting down Wave Server..."
