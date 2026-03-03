@@ -172,6 +172,11 @@ async def list_tasks(execution_id: str, db: AsyncSession = Depends(get_db)):
             tasks[tid].update({k: v for k, v in payload.items() if k != "task_id"})
         elif event.event_type == "task_skipped":
             tasks[tid]["status"] = "skipped"
+    # Enrich with file existence flags
+    for t in tasks.values():
+        tid = t["task_id"]
+        t["has_output"] = storage.has_output(execution_id, tid)
+        t["has_transcript"] = storage.has_transcript(execution_id, tid)
     return list(tasks.values())
 
 
@@ -190,6 +195,24 @@ async def get_task_output(
     content = storage.read_output(execution_id, task_id)
     if content is None:
         raise HTTPException(404, "Output not found")
+    return PlainTextResponse(content)
+
+
+# --- Transcript ---
+
+
+@router.get("/executions/{execution_id}/transcript/{task_id}")
+async def get_task_transcript(
+    execution_id: str, task_id: str, db: AsyncSession = Depends(get_db)
+):
+    exc = await db.get(Execution, execution_id)
+    if not exc:
+        raise HTTPException(404, "Execution not found")
+    from fastapi.responses import PlainTextResponse
+
+    content = storage.read_transcript(execution_id, task_id)
+    if content is None:
+        raise HTTPException(404, "Transcript not found")
     return PlainTextResponse(content)
 
 

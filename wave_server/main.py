@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from wave_server import __version__
 from wave_server.config import settings
 from wave_server.db import init_db
 
@@ -15,7 +16,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Wave Server", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Wave Server", version=__version__, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +32,6 @@ from wave_server.routes.sequences import router as sequences_router  # noqa: E40
 from wave_server.routes.executions import router as executions_router  # noqa: E402
 
 app.include_router(health_router, prefix="/api")
-app.include_router(projects_router, prefix="/api")
-app.include_router(sequences_router, prefix="/api")
-app.include_router(executions_router, prefix="/api")
+app.include_router(projects_router, prefix="/api/v1")
+app.include_router(sequences_router, prefix="/api/v1")
+app.include_router(executions_router, prefix="/api/v1")

@@ -103,6 +103,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             output=output if not runner_result.timed_out else f"Task timed out\n{output}",
             stderr=runner_result.stderr,
             duration_ms=elapsed_ms,
+            stdout=runner_result.stdout,
             timed_out=runner_result.timed_out,
         )
 

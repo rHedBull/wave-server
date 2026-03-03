@@ -65,6 +65,8 @@ class Execution(Base):
     current_wave: Mapped[int] = mapped_column(Integer, default=0)
     waves_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    git_sha_before: Mapped[str | None] = mapped_column(String, nullable=True)
+    git_sha_after: Mapped[str | None] = mapped_column(String, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -111,3 +113,23 @@ class Command(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ProjectRepository(Base):
+    __tablename__ = "project_repositories"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    label: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ProjectContextFile(Base):
+    __tablename__ = "project_context_files"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

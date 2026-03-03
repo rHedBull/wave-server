@@ -25,9 +25,11 @@ export default function AppShell({
   const router = useRouter();
   const pathname = usePathname();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
     api.listProjects().then(setProjects).catch(() => {});
+    api.getHealth().then((h) => setVersion(h.version)).catch(() => {});
   }, []);
 
   const navItems: SideNavigationProps.Item[] = [
@@ -54,15 +56,30 @@ export default function AppShell({
   return (
     <AppLayout
       navigation={
-        <SideNavigation
-          header={{ text: "Wave Server", href: "/" }}
-          items={navItems}
-          activeHref={activeHref || pathname}
-          onFollow={(e) => {
-            e.preventDefault();
-            router.push(e.detail.href);
-          }}
-        />
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <div style={{ flex: 1 }}>
+            <SideNavigation
+              header={{ text: "Wave Server", href: "/" }}
+              items={navItems}
+              activeHref={activeHref || pathname}
+              onFollow={(e) => {
+                e.preventDefault();
+                router.push(e.detail.href);
+              }}
+            />
+          </div>
+          {version && (
+            <div
+              style={{
+                padding: "8px 20px 12px",
+                fontSize: "12px",
+                color: "#687078",
+              }}
+            >
+              v{version}
+            </div>
+          )}
+        </div>
       }
       breadcrumbs={
         <BreadcrumbGroup

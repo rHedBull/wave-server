@@ -53,6 +53,7 @@ class TaskResult:
     output: str
     stderr: str
     duration_ms: int
+    stdout: str = ""
     timed_out: bool = False
 
 

@@ -27,6 +27,42 @@ class ProjectResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Project Repositories ---
+
+
+class ProjectRepositoryCreate(BaseModel):
+    path: str
+    label: str | None = None
+
+
+class ProjectRepositoryResponse(BaseModel):
+    id: str
+    project_id: str
+    path: str
+    label: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Project Context Files ---
+
+
+class ProjectContextFileCreate(BaseModel):
+    path: str
+    description: str | None = None
+
+
+class ProjectContextFileResponse(BaseModel):
+    id: str
+    project_id: str
+    path: str
+    description: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Sequences ---
 
 
@@ -77,6 +113,8 @@ class ExecutionResponse(BaseModel):
     current_wave: int
     waves_state: str | None
     config: str | None
+    git_sha_before: str | None = None
+    git_sha_after: str | None = None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

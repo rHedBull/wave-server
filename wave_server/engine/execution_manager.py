@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,11 +30,23 @@ from wave_server.engine.state import (
 )
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave
-from wave_server.models import Event, Execution, Sequence
+from wave_server.models import Event, Execution, ProjectRepository, Sequence
 from wave_server import storage
 
 # Track active execution tasks
 _active_tasks: dict[str, asyncio.Task] = {}
+
+
+def _get_git_sha(cwd: str) -> str | None:
+    """Get current HEAD SHA for a git repo. Returns None if not a git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=cwd, capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
 
 async def launch_execution(execution_id: str, sequence_id: str) -> None:
@@ -124,6 +138,20 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             max_concurrency = config.get("concurrency") or settings.default_concurrency
             spec_content = storage.read_spec(sequence_id) or ""
 
+            # Resolve repo path for git SHA capture
+            repo_result = await db.execute(
+                select(ProjectRepository)
+                .where(ProjectRepository.project_id == sequence.project_id)
+                .limit(1)
+            )
+            repo = repo_result.scalar_one_or_none()
+            repo_cwd = repo.path if repo and Path(repo.path).is_dir() else None
+
+            # Capture git SHA before execution
+            if repo_cwd:
+                execution.git_sha_before = _get_git_sha(repo_cwd)
+                await db.commit()
+
             # Load state for resume
             state = create_initial_state("plan.md")
             start_time = time.monotonic()
@@ -167,6 +195,18 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     # Save task output
                     if result.output:
                         storage.write_output(execution_id, task.id, result.output)
+                    # Save transcript with structured header
+                    if result.stdout:
+                        header = (
+                            f"# Task: {task.id} — {result.title}\n"
+                            f"Agent: {result.agent}\n"
+                            f"Phase: {phase}\n"
+                            f"Started: {datetime.now(timezone.utc).isoformat()}\n"
+                            f"Duration: {result.duration_ms}ms\n"
+                            f"Exit code: {result.exit_code}\n"
+                            f"---\n"
+                        )
+                        storage.write_transcript(execution_id, task.id, header + result.stdout)
                     # Update execution count
                     asyncio.create_task(_update_completed_count(execution_id, completed_count))
                     # Update state
@@ -209,6 +249,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 if not wave_result.passed:
                     all_passed = False
                     break
+
+            # Capture git SHA after execution
+            if repo_cwd:
+                execution.git_sha_after = _get_git_sha(repo_cwd)
 
             # Complete
             duration_ms = int((time.monotonic() - start_time) * 1000)

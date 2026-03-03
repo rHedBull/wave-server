@@ -66,6 +66,32 @@ def read_output(execution_id: str, task_id: str) -> str | None:
     return path.read_text(encoding="utf-8") if path.exists() else None
 
 
+def has_output(execution_id: str, task_id: str) -> bool:
+    return output_path(execution_id, task_id).exists()
+
+
+# --- Transcripts ---
+
+
+def transcript_path(execution_id: str, task_id: str) -> Path:
+    return _storage() / "transcripts" / execution_id / f"{task_id}.txt"
+
+
+def write_transcript(execution_id: str, task_id: str, content: str) -> Path:
+    path = _ensure(transcript_path(execution_id, task_id))
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def read_transcript(execution_id: str, task_id: str) -> str | None:
+    path = transcript_path(execution_id, task_id)
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def has_transcript(execution_id: str, task_id: str) -> bool:
+    return transcript_path(execution_id, task_id).exists()
+
+
 # --- Logs ---
 
 

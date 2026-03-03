@@ -1,4 +1,5 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -52,6 +53,8 @@ export interface Execution {
   current_wave: number;
   waves_state: string | null;
   config: string | null;
+  git_sha_before: string | null;
+  git_sha_after: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -78,9 +81,35 @@ export interface Command {
   resolved_at: string | null;
 }
 
+export interface ProjectRepository {
+  id: string;
+  project_id: string;
+  path: string;
+  label: string | null;
+  created_at: string;
+}
+
+export interface ProjectContextFile {
+  id: string;
+  project_id: string;
+  path: string;
+  description: string | null;
+  created_at: string;
+}
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  active_executions: number;
+}
+
 // --- Projects ---
 
 export const api = {
+  // Health (unversioned)
+  getHealth: () =>
+    fetch(`${API_BASE}/health`).then((r) => r.json()) as Promise<HealthResponse>,
+
   // Projects
   listProjects: () => request<Project[]>("/projects"),
   getProject: (id: string) => request<Project>(`/projects/${id}`),
@@ -92,6 +121,28 @@ export const api = {
     request<void>(`/projects/${id}`, { method: "DELETE" }),
   regenerateKey: (id: string) =>
     request<Project>(`/projects/${id}/regenerate-key`, { method: "POST" }),
+
+  // Repositories
+  listRepositories: (projectId: string) =>
+    request<ProjectRepository[]>(`/projects/${projectId}/repositories`),
+  addRepository: (projectId: string, data: { path: string; label?: string }) =>
+    request<ProjectRepository>(`/projects/${projectId}/repositories`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteRepository: (projectId: string, repoId: string) =>
+    request<void>(`/projects/${projectId}/repositories/${repoId}`, { method: "DELETE" }),
+
+  // Context Files
+  listContextFiles: (projectId: string) =>
+    request<ProjectContextFile[]>(`/projects/${projectId}/context-files`),
+  addContextFile: (projectId: string, data: { path: string; description?: string }) =>
+    request<ProjectContextFile>(`/projects/${projectId}/context-files`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteContextFile: (projectId: string, fileId: string) =>
+    request<void>(`/projects/${projectId}/context-files/${fileId}`, { method: "DELETE" }),
 
   // Sequences
   listSequences: (projectId: string) =>
@@ -139,6 +190,12 @@ export const api = {
   // Output
   getOutput: (executionId: string, taskId: string) =>
     fetch(`${API_URL}/executions/${executionId}/output/${taskId}`).then((r) =>
+      r.ok ? r.text() : null
+    ),
+
+  // Transcript
+  getTranscript: (executionId: string, taskId: string) =>
+    fetch(`${API_URL}/executions/${executionId}/transcript/${taskId}`).then((r) =>
       r.ok ? r.text() : null
     ),
 
