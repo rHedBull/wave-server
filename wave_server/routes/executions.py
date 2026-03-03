@@ -45,7 +45,9 @@ async def create_execution(
     db.add(execution)
     await db.commit()
     await db.refresh(execution)
-    # TODO: launch background execution task (Phase 2)
+    # Launch background execution
+    from wave_server.engine.execution_manager import launch_execution
+    await launch_execution(execution.id, sequence_id)
     return execution
 
 
@@ -81,6 +83,8 @@ async def cancel_execution(
         raise HTTPException(404, "Execution not found")
     if exc.status not in ("queued", "running"):
         raise HTTPException(400, "Execution is not running")
+    from wave_server.engine.execution_manager import cancel_execution as cancel_bg
+    cancel_bg(execution_id)
     exc.status = "cancelled"
     exc.finished_at = datetime.now(timezone.utc)
     await db.commit()
@@ -108,7 +112,8 @@ async def continue_execution(
     db.add(new_exec)
     await db.commit()
     await db.refresh(new_exec)
-    # TODO: launch background continuation task (Phase 2)
+    from wave_server.engine.execution_manager import launch_execution
+    await launch_execution(new_exec.id, exc.sequence_id)
     return new_exec
 
 
