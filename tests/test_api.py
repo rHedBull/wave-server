@@ -1,5 +1,8 @@
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from wave_server.models import Command, Event
 
 
 @pytest.mark.asyncio
@@ -181,6 +184,191 @@ async def test_delete_sequence_cascades(client: AsyncClient):
     assert r.status_code == 404
     # Execution gone too
     r = await client.get(f"/api/v1/executions/{eid}")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_sequence_cascades_events_and_commands(
+    client: AsyncClient, db_session: AsyncSession
+):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
+    )
+    sid = seq.json()["id"]
+    exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
+    eid = exc.json()["id"]
+    # Insert events and commands directly via DB
+    event = Event(execution_id=eid, event_type="task.start", task_id="t1", payload="{}")
+    cmd = Command(execution_id=eid, task_id="t1", action="run", message="do it")
+    db_session.add(event)
+    db_session.add(cmd)
+    await db_session.commit()
+    event_id = event.id
+    cmd_id = cmd.id
+    # Delete the sequence
+    r = await client.delete(f"/api/v1/sequences/{sid}")
+    assert r.status_code == 204
+    # Verify events and commands are gone
+    from sqlalchemy import select
+    from wave_server.models import Event as EventModel, Command as CommandModel
+    result = await db_session.execute(select(EventModel).where(EventModel.id == event_id))
+    assert result.scalar_one_or_none() is None
+    result = await db_session.execute(select(CommandModel).where(CommandModel.id == cmd_id))
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_sequence_preserves_project(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
+    )
+    sid = seq.json()["id"]
+    r = await client.delete(f"/api/v1/sequences/{sid}")
+    assert r.status_code == 204
+    # Project still exists
+    r = await client.get(f"/api/v1/projects/{pid}")
+    assert r.status_code == 200
+    assert r.json()["name"] == "proj"
+
+
+@pytest.mark.asyncio
+async def test_update_sequence_partial_name_only(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences",
+        json={"name": "orig", "description": "keep this"},
+    )
+    sid = seq.json()["id"]
+    r = await client.patch(f"/api/v1/sequences/{sid}", json={"name": "renamed"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "renamed"
+    assert r.json()["description"] == "keep this"
+
+
+@pytest.mark.asyncio
+async def test_update_sequence_partial_description_only(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "keep-name"}
+    )
+    sid = seq.json()["id"]
+    r = await client.patch(
+        f"/api/v1/sequences/{sid}", json={"description": "new desc"}
+    )
+    assert r.status_code == 200
+    assert r.json()["name"] == "keep-name"
+    assert r.json()["description"] == "new desc"
+
+
+# --- Repositories ---
+
+
+@pytest.mark.asyncio
+async def test_add_repository(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    r = await client.post(
+        f"/api/v1/projects/{pid}/repositories",
+        json={"path": "/home/user/repo", "label": "main"},
+    )
+    assert r.status_code == 201
+    assert r.json()["path"] == "/home/user/repo"
+    assert r.json()["label"] == "main"
+
+
+@pytest.mark.asyncio
+async def test_list_repositories(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    await client.post(
+        f"/api/v1/projects/{pid}/repositories", json={"path": "/repo1"}
+    )
+    await client.post(
+        f"/api/v1/projects/{pid}/repositories", json={"path": "/repo2"}
+    )
+    r = await client.get(f"/api/v1/projects/{pid}/repositories")
+    assert r.status_code == 200
+    assert len(r.json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_repository(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    repo = await client.post(
+        f"/api/v1/projects/{pid}/repositories", json={"path": "/repo"}
+    )
+    rid = repo.json()["id"]
+    r = await client.delete(f"/api/v1/projects/{pid}/repositories/{rid}")
+    assert r.status_code == 204
+    r = await client.get(f"/api/v1/projects/{pid}/repositories")
+    assert len(r.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_repository_not_found(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    r = await client.delete(f"/api/v1/projects/{pid}/repositories/nonexistent")
+    assert r.status_code == 404
+
+
+# --- Context Files ---
+
+
+@pytest.mark.asyncio
+async def test_add_context_file(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    r = await client.post(
+        f"/api/v1/projects/{pid}/context-files",
+        json={"path": "/docs/spec.md", "description": "Main spec"},
+    )
+    assert r.status_code == 201
+    assert r.json()["path"] == "/docs/spec.md"
+    assert r.json()["description"] == "Main spec"
+
+
+@pytest.mark.asyncio
+async def test_list_context_files(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    await client.post(
+        f"/api/v1/projects/{pid}/context-files", json={"path": "/f1"}
+    )
+    await client.post(
+        f"/api/v1/projects/{pid}/context-files", json={"path": "/f2"}
+    )
+    r = await client.get(f"/api/v1/projects/{pid}/context-files")
+    assert r.status_code == 200
+    assert len(r.json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_context_file(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    cf = await client.post(
+        f"/api/v1/projects/{pid}/context-files", json={"path": "/f"}
+    )
+    fid = cf.json()["id"]
+    r = await client.delete(f"/api/v1/projects/{pid}/context-files/{fid}")
+    assert r.status_code == 204
+    r = await client.get(f"/api/v1/projects/{pid}/context-files")
+    assert len(r.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_context_file_not_found(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    r = await client.delete(f"/api/v1/projects/{pid}/context-files/nonexistent")
     assert r.status_code == 404
 
 
