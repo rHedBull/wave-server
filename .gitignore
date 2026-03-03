@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data directory
+data/
+
+# Environment
+.env
