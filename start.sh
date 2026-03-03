@@ -22,10 +22,12 @@ cd "$PROJECT_DIR"
 uv run main.py > "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 
-# Start dashboard
-echo "Starting dashboard (http://localhost:3000) ..."
+# Build and start dashboard in production mode
+echo "Building dashboard ..."
 cd "$DASHBOARD_DIR"
-npm run dev > "$LOG_DIR/dashboard.log" 2>&1 &
+npm run build > "$LOG_DIR/dashboard-build.log" 2>&1
+echo "Starting dashboard (http://localhost:3000) ..."
+npm run start > "$LOG_DIR/dashboard.log" 2>&1 &
 DASHBOARD_PID=$!
 
 # Wait for backend to be ready
