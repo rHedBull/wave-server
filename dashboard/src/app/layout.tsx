@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "@cloudscape-design/global-styles/index.css";
+import AgentationOverlay from "@/components/Agentation";
 
 export const metadata: Metadata = {
   title: "Wave Server",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <AgentationOverlay />
+      </body>
     </html>
   );
 }
