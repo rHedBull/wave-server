@@ -21,21 +21,26 @@ export default function TaskDetail({
   task,
   onClose,
 }: TaskDetailProps) {
-  const [output, setOutput] = useState<string | null>(null);
-  const [transcript, setTranscript] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<{ output: string | null; transcript: string | null } | null>(null);
   const [activeTab, setActiveTab] = useState("output");
 
+  const loading = data === null;
+  const output = data?.output ?? null;
+  const transcript = data?.transcript ?? null;
+
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      api.getOutput(executionId, taskId),
-      api.getTranscript(executionId, taskId),
-    ]).then(([out, trans]) => {
-      setOutput(out);
-      setTranscript(trans);
-      setLoading(false);
-    });
+    let cancelled = false;
+    const load = async () => {
+      const [out, trans] = await Promise.all([
+        api.getOutput(executionId, taskId),
+        api.getTranscript(executionId, taskId),
+      ]);
+      if (!cancelled) {
+        setData({ output: out, transcript: trans });
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, [executionId, taskId]);
 
   const metadata = task
