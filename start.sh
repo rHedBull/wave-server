@@ -7,6 +7,16 @@ LOG_DIR="$PROJECT_DIR/data/logs"
 
 mkdir -p "$LOG_DIR"
 
+# Kill any existing processes on our ports
+for port in 8000 3000; do
+    pid=$(lsof -ti :"$port" -sTCP:LISTEN 2>/dev/null || true)
+    if [[ -n "$pid" ]]; then
+        echo "Killing existing process on port $port (PID $pid) ..."
+        kill "$pid" 2>/dev/null
+        sleep 1
+    fi
+done
+
 cleanup() {
     echo "Shutting down Wave Server..."
     [[ -n "${BACKEND_PID:-}" ]] && kill "$BACKEND_PID" 2>/dev/null
