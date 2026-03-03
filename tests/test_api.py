@@ -127,6 +127,63 @@ async def test_update_sequence(client: AsyncClient):
     assert r.json()["status"] == "planned"
 
 
+@pytest.mark.asyncio
+async def test_update_sequence_name_and_description(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "old-name"}
+    )
+    sid = seq.json()["id"]
+    r = await client.patch(
+        f"/api/v1/sequences/{sid}",
+        json={"name": "new-name", "description": "updated desc"},
+    )
+    assert r.status_code == 200
+    assert r.json()["name"] == "new-name"
+    assert r.json()["description"] == "updated desc"
+
+
+@pytest.mark.asyncio
+async def test_delete_sequence(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "doomed"}
+    )
+    sid = seq.json()["id"]
+    r = await client.delete(f"/api/v1/sequences/{sid}")
+    assert r.status_code == 204
+    r = await client.get(f"/api/v1/sequences/{sid}")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_sequence_not_found(client: AsyncClient):
+    r = await client.delete("/api/v1/sequences/nonexistent")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_sequence_cascades(client: AsyncClient):
+    proj = await client.post("/api/v1/projects", json={"name": "proj"})
+    pid = proj.json()["id"]
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
+    )
+    sid = seq.json()["id"]
+    exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
+    eid = exc.json()["id"]
+    r = await client.delete(f"/api/v1/sequences/{sid}")
+    assert r.status_code == 204
+    # Sequence gone
+    r = await client.get(f"/api/v1/sequences/{sid}")
+    assert r.status_code == 404
+    # Execution gone too
+    r = await client.get(f"/api/v1/executions/{eid}")
+    assert r.status_code == 404
+
+
 # --- Spec/Plan ---
 
 
