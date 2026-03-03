@@ -5,8 +5,24 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wave_server.db import get_db
-from wave_server.models import Project, Sequence, Execution, Event, Command
-from wave_server.schemas import ProjectCreate, ProjectResponse, ProjectUpdate
+from wave_server.models import (
+    Command,
+    Event,
+    Execution,
+    Project,
+    ProjectContextFile,
+    ProjectRepository,
+    Sequence,
+)
+from wave_server.schemas import (
+    ProjectContextFileCreate,
+    ProjectContextFileResponse,
+    ProjectCreate,
+    ProjectRepositoryCreate,
+    ProjectRepositoryResponse,
+    ProjectResponse,
+    ProjectUpdate,
+)
 
 router = APIRouter()
 
@@ -55,6 +71,17 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+    # Cascade: delete repositories and context files
+    await db.execute(
+        ProjectRepository.__table__.delete().where(
+            ProjectRepository.project_id == project_id
+        )
+    )
+    await db.execute(
+        ProjectContextFile.__table__.delete().where(
+            ProjectContextFile.project_id == project_id
+        )
+    )
     # Cascade: delete sequences -> executions -> events/commands
     seqs = await db.execute(
         select(Sequence).where(Sequence.project_id == project_id)
@@ -87,3 +114,105 @@ async def regenerate_key(project_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(project)
     return project
+
+
+# --- Repositories ---
+
+
+@router.get(
+    "/projects/{project_id}/repositories",
+    response_model=list[ProjectRepositoryResponse],
+)
+async def list_repositories(project_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ProjectRepository)
+        .where(ProjectRepository.project_id == project_id)
+        .order_by(ProjectRepository.created_at)
+    )
+    return result.scalars().all()
+
+
+@router.post(
+    "/projects/{project_id}/repositories",
+    response_model=ProjectRepositoryResponse,
+    status_code=201,
+)
+async def add_repository(
+    project_id: str,
+    body: ProjectRepositoryCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    repo = ProjectRepository(
+        project_id=project_id, path=body.path, label=body.label
+    )
+    db.add(repo)
+    await db.commit()
+    await db.refresh(repo)
+    return repo
+
+
+@router.delete(
+    "/projects/{project_id}/repositories/{repo_id}", status_code=204
+)
+async def delete_repository(
+    project_id: str, repo_id: str, db: AsyncSession = Depends(get_db)
+):
+    repo = await db.get(ProjectRepository, repo_id)
+    if not repo or repo.project_id != project_id:
+        raise HTTPException(404, "Repository not found")
+    await db.delete(repo)
+    await db.commit()
+
+
+# --- Context Files ---
+
+
+@router.get(
+    "/projects/{project_id}/context-files",
+    response_model=list[ProjectContextFileResponse],
+)
+async def list_context_files(project_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ProjectContextFile)
+        .where(ProjectContextFile.project_id == project_id)
+        .order_by(ProjectContextFile.created_at)
+    )
+    return result.scalars().all()
+
+
+@router.post(
+    "/projects/{project_id}/context-files",
+    response_model=ProjectContextFileResponse,
+    status_code=201,
+)
+async def add_context_file(
+    project_id: str,
+    body: ProjectContextFileCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    cf = ProjectContextFile(
+        project_id=project_id, path=body.path, description=body.description
+    )
+    db.add(cf)
+    await db.commit()
+    await db.refresh(cf)
+    return cf
+
+
+@router.delete(
+    "/projects/{project_id}/context-files/{file_id}", status_code=204
+)
+async def delete_context_file(
+    project_id: str, file_id: str, db: AsyncSession = Depends(get_db)
+):
+    cf = await db.get(ProjectContextFile, file_id)
+    if not cf or cf.project_id != project_id:
+        raise HTTPException(404, "Context file not found")
+    await db.delete(cf)
+    await db.commit()

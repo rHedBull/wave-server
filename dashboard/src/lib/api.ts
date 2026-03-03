@@ -153,6 +153,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  updateSequence: (id: string, data: { name?: string; description?: string }) =>
+    request<Sequence>(`/sequences/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteSequence: (id: string) =>
+    request<void>(`/sequences/${id}`, { method: "DELETE" }),
   getSpec: (id: string) =>
     fetch(`${API_URL}/sequences/${id}/spec`).then((r) =>
       r.ok ? r.text() : null

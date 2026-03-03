@@ -1,1 +1,16 @@
 /* Cloudscape handles all styling via its global-styles import */
+
+/* Danger button styling */
+.btn-danger button {
+  background-color: #d91515 !important;
+  border-color: #d91515 !important;
+  color: #fff !important;
+}
+.btn-danger button:hover {
+  background-color: #b71212 !important;
+  border-color: #b71212 !important;
+}
+.btn-danger button:disabled {
+  background-color: #d9151580 !important;
+  border-color: #d9151580 !important;
+}

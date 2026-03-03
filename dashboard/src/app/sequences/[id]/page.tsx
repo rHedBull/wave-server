@@ -4,12 +4,17 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Box from "@cloudscape-design/components/box";
 import Button from "@cloudscape-design/components/button";
+import Container from "@cloudscape-design/components/container";
+import FormField from "@cloudscape-design/components/form-field";
 import Header from "@cloudscape-design/components/header";
+import Input from "@cloudscape-design/components/input";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import Tabs from "@cloudscape-design/components/tabs";
+import Textarea from "@cloudscape-design/components/textarea";
 import AppShell from "@/components/AppShell";
+import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import MarkdownView from "@/components/MarkdownView";
 import { usePolling } from "@/hooks/usePolling";
 import { api, type Execution, type Sequence } from "@/lib/api";
@@ -41,16 +46,49 @@ export default function SequenceDetailPage({
   const seqFetcher = useCallback(() => api.getSequence(id), [id]);
   const execFetcher = useCallback(() => api.listExecutions(id), [id]);
 
-  const { data: sequence } = usePolling(seqFetcher, 10000);
+  const { data: sequence, refetch: refetchSeq } = usePolling(seqFetcher, 10000);
   const { data: executions, loading: execLoading, refetch: refetchExecs } = usePolling(execFetcher, 5000);
 
   const [spec, setSpec] = useState<string | null>(null);
   const [plan, setPlan] = useState<string | null>(null);
 
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+
   useEffect(() => {
     api.getSpec(id).then(setSpec);
     api.getPlan(id).then(setPlan);
   }, [id]);
+
+  if (sequence && !initialized) {
+    setEditName(sequence.name);
+    setEditDesc(sequence.description || "");
+    setInitialized(true);
+  }
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.updateSequence(id, {
+        name: editName,
+        description: editDesc,
+      });
+      setEditing(false);
+      refetchSeq();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const projectId = sequence?.project_id;
+    await api.deleteSequence(id);
+    router.push(projectId ? `/projects/${projectId}` : "/projects");
+  };
 
   const handleCreateExecution = async () => {
     const exec = await api.createExecution(id);
@@ -71,9 +109,14 @@ export default function SequenceDetailPage({
         <Header
           variant="h1"
           actions={
-            <Button variant="primary" onClick={handleCreateExecution}>
-              Run execution
-            </Button>
+            <SpaceBetween direction="horizontal" size="xs">
+              {!editing && (
+                <Button onClick={() => setEditing(true)}>Edit</Button>
+              )}
+              <Button variant="primary" onClick={handleCreateExecution}>
+                Run execution
+              </Button>
+            </SpaceBetween>
           }
         >
           {sequence.name}
@@ -83,6 +126,34 @@ export default function SequenceDetailPage({
             </StatusIndicator>
           </Box>
         </Header>
+
+        {editing && (
+          <Container header={<Header variant="h2">Edit Sequence</Header>}>
+            <SpaceBetween size="l">
+              <FormField label="Name">
+                <Input
+                  value={editName}
+                  onChange={({ detail }) => setEditName(detail.value)}
+                />
+              </FormField>
+              <FormField label="Description">
+                <Textarea
+                  value={editDesc}
+                  onChange={({ detail }) => setEditDesc(detail.value)}
+                  rows={3}
+                />
+              </FormField>
+              <SpaceBetween direction="horizontal" size="xs">
+                <Button variant="primary" onClick={handleSave} loading={saving}>
+                  Save
+                </Button>
+                <Button variant="link" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              </SpaceBetween>
+            </SpaceBetween>
+          </Container>
+        )}
 
         <Tabs
           tabs={[
@@ -169,7 +240,23 @@ export default function SequenceDetailPage({
             },
           ]}
         />
+
+        <Container header={<Header variant="h2">Danger zone</Header>}>
+          <span className="btn-danger">
+            <Button variant="primary" onClick={() => setShowDeleteConfirm(true)}>
+              Delete sequence
+            </Button>
+          </span>
+        </Container>
       </SpaceBetween>
+
+      <ConfirmDeleteModal
+        visible={showDeleteConfirm}
+        onDismiss={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+        resourceName={sequence.name}
+        resourceType="sequence"
+      />
     </AppShell>
   );
 }
