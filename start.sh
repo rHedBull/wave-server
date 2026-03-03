@@ -25,6 +25,7 @@ BACKEND_PID=$!
 # Build and start dashboard in production mode
 echo "Building dashboard ..."
 cd "$DASHBOARD_DIR"
+rm -rf .next
 npm run build > "$LOG_DIR/dashboard-build.log" 2>&1
 echo "Starting dashboard (http://localhost:3000) ..."
 npm run start > "$LOG_DIR/dashboard.log" 2>&1 &
