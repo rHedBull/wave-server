@@ -41,6 +41,8 @@ async def create_execution(
         sequence_id=sequence_id,
         runtime=body.runtime or "claude",
         config=config,
+        source_branch=body.source_branch,
+        source_sha=body.source_sha,
     )
     db.add(execution)
     await db.commit()
@@ -108,6 +110,8 @@ async def continue_execution(
         trigger="continuation",
         runtime=exc.runtime,
         config=exc.config,
+        source_branch=exc.source_branch,
+        source_sha=exc.source_sha,
     )
     db.add(new_exec)
     await db.commit()

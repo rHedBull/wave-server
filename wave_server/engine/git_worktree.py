@@ -118,3 +118,104 @@ async def cleanup_worktrees(
     for wt in worktrees:
         await _run_git(["worktree", "remove", "--force", wt.dir], repo_root)
         await _run_git(["branch", "-D", wt.branch], repo_root)
+
+
+# ── Execution Branch Management ────────────────────────────────
+
+
+async def get_current_sha(cwd: str) -> str | None:
+    """Get current HEAD SHA."""
+    code, out, _ = await _run_git(["rev-parse", "HEAD"], cwd)
+    return out if code == 0 else None
+
+
+async def branch_exists(cwd: str, branch: str) -> bool:
+    """Check if a local branch exists."""
+    code, _, _ = await _run_git(["rev-parse", "--verify", f"refs/heads/{branch}"], cwd)
+    return code == 0
+
+
+async def sha_exists(cwd: str, sha: str) -> bool:
+    """Check if a commit SHA exists in the repo."""
+    code, _, _ = await _run_git(["cat-file", "-t", sha], cwd)
+    return code == 0
+
+
+async def create_work_branch(
+    cwd: str, branch_name: str, start_point: str
+) -> tuple[bool, str]:
+    """Create and checkout a new work branch from a given start point.
+
+    Returns (success, error_message).
+    """
+    code, _, err = await _run_git(
+        ["checkout", "-b", branch_name, start_point], cwd
+    )
+    if code != 0:
+        return False, f"Failed to create branch {branch_name}: {err}"
+    return True, ""
+
+
+async def checkout_branch(cwd: str, branch: str) -> tuple[bool, str]:
+    """Checkout an existing branch. Returns (success, error_message)."""
+    code, _, err = await _run_git(["checkout", branch], cwd)
+    if code != 0:
+        return False, f"Failed to checkout {branch}: {err}"
+    return True, ""
+
+
+async def get_remote_url(cwd: str, remote: str = "origin") -> str | None:
+    """Get the URL of a remote. Returns None if remote doesn't exist."""
+    code, out, _ = await _run_git(["remote", "get-url", remote], cwd)
+    return out if code == 0 and out else None
+
+
+async def push_branch(
+    cwd: str, branch: str, remote: str = "origin"
+) -> tuple[bool, str]:
+    """Push a branch to a remote. Returns (success, error_message)."""
+    code, out, err = await _run_git(["push", "-u", remote, branch], cwd)
+    if code != 0:
+        return False, f"Failed to push {branch}: {err}"
+    return True, ""
+
+
+async def create_pr(
+    cwd: str, work_branch: str, target_branch: str, title: str, body: str
+) -> tuple[str | None, str]:
+    """Create a GitHub PR using the gh CLI.
+
+    Returns (pr_url, error_message). pr_url is None on failure.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "gh", "pr", "create",
+        "--base", target_branch,
+        "--head", work_branch,
+        "--title", title,
+        "--body", body,
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    out = stdout.decode("utf-8", errors="replace").strip()
+    err = stderr.decode("utf-8", errors="replace").strip()
+
+    if proc.returncode == 0 and out:
+        # gh pr create outputs the PR URL
+        return out, ""
+    return None, f"gh pr create failed: {err or out}"
+
+
+async def has_gh_cli() -> bool:
+    """Check if the gh CLI is available."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "gh", "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        return proc.returncode == 0
+    except FileNotFoundError:
+        return False

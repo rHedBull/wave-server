@@ -65,6 +65,10 @@ class Execution(Base):
     current_wave: Mapped[int] = mapped_column(Integer, default=0)
     waves_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    work_branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_before: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_after: Mapped[str | None] = mapped_column(String, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
