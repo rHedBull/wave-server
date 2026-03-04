@@ -38,6 +38,7 @@ class WaveExecutorOptions:
     data_schemas: str = ""
     project_context: str = ""
     cwd: str = "."
+    env: dict[str, str] | None = None
     max_concurrency: int = 4
     skip_task_ids: set[str] = field(default_factory=set)
 
@@ -97,6 +98,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             task_id=task.id,
             prompt=prompt,
             cwd=opts.cwd,
+            env=opts.env,
         )
 
         runner_result = await opts.runner.spawn(config)
