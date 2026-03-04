@@ -34,6 +34,7 @@ class WaveExecutorOptions:
     runner: AgentRunner
     spec_content: str = ""
     data_schemas: str = ""
+    project_context: str = ""
     cwd: str = "."
     max_concurrency: int = 4
     skip_task_ids: set[str] = field(default_factory=set)
@@ -80,7 +81,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         start = time.monotonic()
 
         # Build prompt for the agent
-        prompt = _build_task_prompt(task, opts.spec_content, opts.data_schemas)
+        prompt = _build_task_prompt(task, opts.spec_content, opts.data_schemas, opts.project_context)
 
         from wave_server.engine.types import RunnerConfig
 
@@ -233,17 +234,18 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     )
 
 
-def _build_task_prompt(task: Task, spec_content: str, data_schemas: str) -> str:
+def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project_context: str = "") -> str:
     """Build the prompt sent to the agent subprocess."""
     schemas_block = (
         f"\n## Data Schemas (authoritative — use these exact names)\n{data_schemas}\n"
         if data_schemas
         else ""
     )
+    context_block = f"\n{project_context}\n" if project_context else ""
 
     if task.agent == "wave-verifier":
         return f"""You are verifying completed work.
-{schemas_block}
+{schemas_block}{context_block}
 ## Your Task
 **{task.id}: {task.title}**
 {f"Files to check: {', '.join(task.files)}" if task.files else ""}
@@ -258,7 +260,7 @@ IMPORTANT — verify in this order:
 - Do NOT modify any files"""
     elif task.agent == "test-writer":
         return f"""You are writing tests.
-{schemas_block}
+{schemas_block}{context_block}
 ## Your Task
 **{task.id}: {task.title}**
 Files: {', '.join(task.files)}
@@ -276,7 +278,7 @@ IMPORTANT:
             else ""
         )
         return f"""You are implementing code.
-{schemas_block}
+{schemas_block}{context_block}
 ## Your Task
 **{task.id}: {task.title}**
 Files: {', '.join(task.files)}{test_context}

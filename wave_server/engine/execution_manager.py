@@ -30,11 +30,45 @@ from wave_server.engine.state import (
 )
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave
-from wave_server.models import Event, Execution, ProjectRepository, Sequence
+from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
 from wave_server import storage
 
 # Track active execution tasks
 _active_tasks: dict[str, asyncio.Task] = {}
+
+# Max size per context file to avoid prompt bloat (32KB)
+_MAX_CONTEXT_FILE_SIZE = 32 * 1024
+
+
+def _load_context_files(context_files: list, repo_cwd: str) -> str:
+    """Load project context files and return combined content for prompt injection."""
+    if not context_files:
+        return ""
+
+    sections: list[str] = []
+    for cf in context_files:
+        # Resolve relative paths against repo root
+        file_path = Path(cf.path)
+        if not file_path.is_absolute():
+            file_path = Path(repo_cwd) / file_path
+        file_path = file_path.resolve()
+
+        if not file_path.is_file():
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+            if len(content) > _MAX_CONTEXT_FILE_SIZE:
+                content = content[:_MAX_CONTEXT_FILE_SIZE] + "\n... (truncated)"
+            label = cf.description or cf.path
+            sections.append(f"### {label}\n```\n{content}\n```")
+        except OSError:
+            continue
+
+    if not sections:
+        return ""
+
+    return "## Project Context\n\n" + "\n\n".join(sections)
 
 
 def _get_git_sha(cwd: str) -> str | None:
@@ -138,7 +172,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             max_concurrency = config.get("concurrency") or settings.default_concurrency
             spec_content = storage.read_spec(sequence_id) or ""
 
-            # Resolve repo path for git SHA capture
+            # Resolve repo path for execution cwd
             repo_result = await db.execute(
                 select(ProjectRepository)
                 .where(ProjectRepository.project_id == sequence.project_id)
@@ -147,10 +181,31 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             repo = repo_result.scalar_one_or_none()
             repo_cwd = repo.path if repo and Path(repo.path).is_dir() else None
 
-            # Capture git SHA before execution
-            if repo_cwd:
-                execution.git_sha_before = _get_git_sha(repo_cwd)
+            if not repo_cwd:
+                execution.status = "failed"
                 await db.commit()
+                await _emit_event(
+                    db, execution_id, "run_completed",
+                    payload={
+                        "passed": False,
+                        "error": "No repository configured for this project. "
+                                 "Register one via POST /api/v1/projects/{project_id}/repositories",
+                    },
+                )
+                return
+
+            # Load project context files
+            ctx_result = await db.execute(
+                select(ProjectContextFile)
+                .where(ProjectContextFile.project_id == sequence.project_id)
+                .order_by(ProjectContextFile.created_at)
+            )
+            context_files = ctx_result.scalars().all()
+            project_context = _load_context_files(context_files, repo_cwd)
+
+            # Capture git SHA before execution
+            execution.git_sha_before = _get_git_sha(repo_cwd)
+            await db.commit()
 
             # Load state for resume
             state = create_initial_state("plan.md")
@@ -224,7 +279,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     runner=runner,
                     spec_content=spec_content,
                     data_schemas=plan.data_schemas,
-                    cwd=".",
+                    project_context=project_context,
+                    cwd=repo_cwd,
                     max_concurrency=max_concurrency,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,
