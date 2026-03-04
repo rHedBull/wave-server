@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@cloudscape-design/components/box";
 import Container from "@cloudscape-design/components/container";
 import Header from "@cloudscape-design/components/header";
@@ -12,35 +12,57 @@ interface TaskDetailProps {
   executionId: string;
   taskId: string;
   task?: Record<string, unknown>;
-  onClose?: () => void;
 }
+
+type TaskData = {
+  output: string | null;
+  transcript: string | null;
+  taskLog: string | null;
+};
 
 export default function TaskDetail({
   executionId,
   taskId,
   task,
-  onClose,
 }: TaskDetailProps) {
-  const [data, setData] = useState<{ output: string | null; transcript: string | null } | null>(null);
-  const [activeTab, setActiveTab] = useState("output");
+  // Reset key forces remount when task changes, avoiding sync setState in effect
+  const fetchKey = useMemo(() => `${executionId}:${taskId}`, [executionId, taskId]);
+  return <TaskDetailInner key={fetchKey} executionId={executionId} taskId={taskId} task={task} />;
+}
+
+function TaskDetailInner({
+  executionId,
+  taskId,
+  task,
+}: TaskDetailProps) {
+  const [data, setData] = useState<TaskData | null>(null);
+  const [activeTab, setActiveTab] = useState("tasklog");
 
   const loading = data === null;
   const output = data?.output ?? null;
   const transcript = data?.transcript ?? null;
+  const taskLog = data?.taskLog ?? null;
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [out, trans] = await Promise.all([
+      const [out, trans, log] = await Promise.all([
         api.getOutput(executionId, taskId),
         api.getTranscript(executionId, taskId),
+        api.getTaskLog(executionId, taskId),
       ]);
       if (!cancelled) {
-        setData({ output: out, transcript: trans });
+        setData({ output: out, transcript: trans, taskLog: log });
+        // Auto-select best available tab
+        if (log) setActiveTab("tasklog");
+        else if (out) setActiveTab("output");
+        else if (trans) setActiveTab("transcript");
       }
     };
-    load();
-    return () => { cancelled = true; };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [executionId, taskId]);
 
   const metadata = task
@@ -56,7 +78,7 @@ export default function TaskDetail({
     whiteSpace: "pre-wrap" as const,
     margin: 0,
     fontSize: "12px",
-    maxHeight: "400px",
+    maxHeight: "600px",
     overflow: "auto" as const,
   };
 
@@ -83,6 +105,18 @@ export default function TaskDetail({
           onChange={({ detail }) => setActiveTab(detail.activeTabId)}
           tabs={[
             {
+              id: "tasklog",
+              label: "📋 Task Log",
+              disabled: !taskLog,
+              content: taskLog ? (
+                <Box variant="code">
+                  <pre style={preStyle}>{taskLog}</pre>
+                </Box>
+              ) : (
+                <Box color="text-status-inactive">No task log available</Box>
+              ),
+            },
+            {
               id: "output",
               label: "Output",
               content: output ? (
@@ -95,7 +129,7 @@ export default function TaskDetail({
             },
             {
               id: "transcript",
-              label: "Transcript",
+              label: "Raw Transcript",
               disabled: !transcript,
               content: transcript ? (
                 <Box variant="code">
