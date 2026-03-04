@@ -100,6 +100,8 @@ class ExecutionCreate(BaseModel):
     runtime: str | None = None
     concurrency: int | None = None
     timeout_ms: int | None = None
+    source_branch: str | None = None
+    source_sha: str | None = None
 
 
 class ExecutionResponse(BaseModel):
@@ -113,6 +115,10 @@ class ExecutionResponse(BaseModel):
     current_wave: int
     waves_state: str | None
     config: str | None
+    source_branch: str | None = None
+    source_sha: str | None = None
+    work_branch: str | None = None
+    pr_url: str | None = None
     git_sha_before: str | None = None
     git_sha_after: str | None = None
     started_at: datetime | None
