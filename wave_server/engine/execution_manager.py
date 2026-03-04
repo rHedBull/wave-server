@@ -224,21 +224,20 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     payload={"wave_index": wave_idx, "wave_name": wave.name},
                 )
 
-                def on_task_start(phase: str, task: Task):
-                    # Schedule coroutine to emit event
-                    asyncio.create_task(_emit_event(
+                async def on_task_start(phase: str, task: Task):
+                    await _emit_event(
                         db, execution_id, "task_started",
                         task_id=task.id, phase=phase,
                         payload={"task_id": task.id, "title": task.title, "agent": task.agent, "phase": phase},
-                    ))
+                    )
 
-                def on_task_end(phase: str, task: Task, result: TaskResult):
+                async def on_task_end(phase: str, task: Task, result: TaskResult):
                     nonlocal completed_count
                     completed_count += 1
                     event_type = "task_completed" if result.exit_code == 0 else (
                         "task_skipped" if result.exit_code == -1 else "task_failed"
                     )
-                    asyncio.create_task(_emit_event(
+                    await _emit_event(
                         db, execution_id, event_type,
                         task_id=task.id, phase=phase,
                         payload={
@@ -246,7 +245,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                             "exit_code": result.exit_code,
                             "duration_ms": result.duration_ms,
                         },
-                    ))
+                    )
                     # Save task output
                     if result.output:
                         storage.write_output(execution_id, task.id, result.output)
@@ -263,7 +262,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                         )
                         storage.write_transcript(execution_id, task.id, header + result.stdout)
                     # Update execution count
-                    asyncio.create_task(_update_completed_count(execution_id, completed_count))
+                    execution.completed_tasks = completed_count
+                    await db.commit()
                     # Update state
                     if result.exit_code == 0:
                         mark_task_done(state, task.id)
@@ -349,9 +349,4 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 )
 
 
-async def _update_completed_count(execution_id: str, count: int) -> None:
-    async with async_session() as db:
-        execution = await db.get(Execution, execution_id)
-        if execution:
-            execution.completed_tasks = count
-            await db.commit()
+

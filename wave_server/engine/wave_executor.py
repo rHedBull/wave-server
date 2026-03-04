@@ -8,8 +8,10 @@ Ported from TypeScript wave-executor.ts. Simplified for server context:
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,12 +41,21 @@ class WaveExecutorOptions:
     max_concurrency: int = 4
     skip_task_ids: set[str] = field(default_factory=set)
 
-    # Callbacks
-    on_progress: Callable[[ProgressUpdate], None] | None = None
-    on_task_start: Callable[[str, Task], None] | None = None
-    on_task_end: Callable[[str, Task, TaskResult], None] | None = None
-    on_merge_result: Callable[[MergeResult], None] | None = None
-    on_log: Callable[[str], None] | None = None
+    # Callbacks (async or sync — async callbacks are awaited)
+    on_progress: Callable[[ProgressUpdate], Any] | None = None
+    on_task_start: Callable[[str, Task], Any] | None = None
+    on_task_end: Callable[[str, Task, TaskResult], Any] | None = None
+    on_merge_result: Callable[[MergeResult], Any] | None = None
+    on_log: Callable[[str], Any] | None = None
+
+
+async def _call(fn: Callable | None, *args: Any) -> None:
+    """Call a callback, awaiting it if it's async."""
+    if fn is None:
+        return
+    result = fn(*args)
+    if inspect.isawaitable(result):
+        await result
 
 
 async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
@@ -69,14 +80,11 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 stderr="",
                 duration_ms=0,
             )
-            if opts.on_task_start:
-                opts.on_task_start(phase, task)
-            if opts.on_task_end:
-                opts.on_task_end(phase, task, skipped)
+            await _call(opts.on_task_start, phase, task)
+            await _call(opts.on_task_end, phase, task, skipped)
             return skipped
 
-        if opts.on_task_start:
-            opts.on_task_start(phase, task)
+        await _call(opts.on_task_start, phase, task)
 
         start = time.monotonic()
 
@@ -108,23 +116,21 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             timed_out=runner_result.timed_out,
         )
 
-        if opts.on_task_end:
-            opts.on_task_end(phase, task, result)
+        await _call(opts.on_task_end, phase, task, result)
 
         return result
 
     # ── 1. Foundation Phase ─────────────────────────────────────
 
     if wave.foundation:
-        if opts.on_progress:
-            opts.on_progress(
-                ProgressUpdate(
-                    phase="foundation",
-                    current_tasks=[{"id": t.id, "status": "pending"} for t in wave.foundation],
-                )
-            )
-        if opts.on_log:
-            opts.on_log("### Foundation")
+        await _call(
+            opts.on_progress,
+            ProgressUpdate(
+                phase="foundation",
+                current_tasks=[{"id": t.id, "status": "pending"} for t in wave.foundation],
+            ),
+        )
+        await _call(opts.on_log, "### Foundation")
 
         f_results = await execute_dag(
             wave.foundation,
@@ -134,8 +140,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         foundation_results.extend(f_results)
 
         if any(r.exit_code != 0 for r in f_results):
-            if opts.on_log:
-                opts.on_log("Foundation FAILED — skipping features and integration")
+            await _call(opts.on_log, "Foundation FAILED — skipping features and integration")
             return WaveResult(
                 wave=wave.name,
                 foundation_results=foundation_results,
@@ -147,15 +152,14 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     # ── 2. Feature Phase ───────────────────────────────────────
 
     if wave.features:
-        if opts.on_progress:
-            opts.on_progress(
-                ProgressUpdate(
-                    phase="features",
-                    features=[{"name": f.name, "status": "pending"} for f in wave.features],
-                )
-            )
-        if opts.on_log:
-            opts.on_log("### Features")
+        await _call(
+            opts.on_progress,
+            ProgressUpdate(
+                phase="features",
+                features=[{"name": f.name, "status": "pending"} for f in wave.features],
+            ),
+        )
+        await _call(opts.on_log, "### Features")
 
         per_feature_concurrency = max(
             2, opts.max_concurrency // len(wave.features)
@@ -189,8 +193,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         feature_results.extend(f_results)
 
         if any(not r.passed for r in f_results):
-            if opts.on_log:
-                opts.on_log("One or more features failed — skipping integration")
+            await _call(opts.on_log, "One or more features failed — skipping integration")
             return WaveResult(
                 wave=wave.name,
                 foundation_results=foundation_results,
@@ -202,15 +205,14 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     # ── 3. Integration Phase ───────────────────────────────────
 
     if wave.integration:
-        if opts.on_progress:
-            opts.on_progress(
-                ProgressUpdate(
-                    phase="integration",
-                    current_tasks=[{"id": t.id, "status": "pending"} for t in wave.integration],
-                )
-            )
-        if opts.on_log:
-            opts.on_log("### Integration")
+        await _call(
+            opts.on_progress,
+            ProgressUpdate(
+                phase="integration",
+                current_tasks=[{"id": t.id, "status": "pending"} for t in wave.integration],
+            ),
+        )
+        await _call(opts.on_log, "### Integration")
 
         i_results = await execute_dag(
             wave.integration,
