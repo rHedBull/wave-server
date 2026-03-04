@@ -183,6 +183,51 @@ export default function ExecutionPage({
           </Container>
         </ColumnLayout>
 
+        {/* Git / Branch Info */}
+        {(execution.work_branch || execution.source_branch) && (
+          <Container header={<Header variant="h3">Git</Header>}>
+            <ColumnLayout columns={3}>
+              <div>
+                <Box variant="awsui-key-label">Source</Box>
+                <Box>
+                  <code>{execution.source_branch || "—"}</code>
+                  {execution.source_sha && (
+                    <Box variant="small" color="text-body-secondary">
+                      {execution.source_sha.slice(0, 8)}
+                    </Box>
+                  )}
+                </Box>
+              </div>
+              <div>
+                <Box variant="awsui-key-label">Work branch</Box>
+                <Box>
+                  <code>{execution.work_branch || "—"}</code>
+                </Box>
+              </div>
+              <div>
+                <Box variant="awsui-key-label">Pull Request</Box>
+                <Box>
+                  {execution.pr_url ? (
+                    <a
+                      href={execution.pr_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {execution.pr_url.replace(/.*\/pull\//, "#")}
+                    </a>
+                  ) : execution.status === "completed" ? (
+                    "No PR created"
+                  ) : execution.status === "running" ? (
+                    "Pending…"
+                  ) : (
+                    "—"
+                  )}
+                </Box>
+              </div>
+            </ColumnLayout>
+          </Container>
+        )}
+
         {/* Blocker Banner */}
         <BlockerBanner executionId={id} isActive={isActive} />
 

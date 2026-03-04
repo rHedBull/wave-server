@@ -53,6 +53,10 @@ export interface Execution {
   current_wave: number;
   waves_state: string | null;
   config: string | null;
+  source_branch: string | null;
+  source_sha: string | null;
+  work_branch: string | null;
+  pr_url: string | null;
   git_sha_before: string | null;
   git_sha_after: string | null;
   started_at: string | null;
