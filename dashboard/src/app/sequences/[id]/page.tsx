@@ -83,16 +83,7 @@ export default function SequenceDetailPage({
     setActiveTab(executions.length > 0 ? "executions" : "spec");
   }
 
-  // Derive effective status: if backend still says "drafting" but executions exist,
-  // infer from the most recent execution
-  const effectiveStatus = (() => {
-    if (!sequence) return "drafting";
-    if (sequence.status !== "drafting") return sequence.status;
-    if (!executions || executions.length === 0) return sequence.status;
-    const latest = executions[0];
-    if (latest.status === "running") return "executing";
-    return latest.status;
-  })();
+
 
   const handleSave = async () => {
     setSaving(true);
@@ -149,8 +140,8 @@ export default function SequenceDetailPage({
         >
           {sequence.name}
           <Box margin={{ left: "s" }} display="inline-block">
-            <StatusIndicator type={statusType(effectiveStatus)}>
-              {effectiveStatus}
+            <StatusIndicator type={statusType(sequence.status)}>
+              {sequence.status}
             </StatusIndicator>
           </Box>
         </Header>
