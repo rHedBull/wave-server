@@ -33,6 +33,7 @@ from wave_server.engine.state import (
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
 from wave_server.engine.git_worktree import (
     branch_exists,
+    build_signing_env,
     checkout_branch,
     create_pr,
     create_work_branch,
@@ -44,6 +45,7 @@ from wave_server.engine.git_worktree import (
     push_branch,
     sha_exists,
 )
+from wave_server.config import settings as server_settings
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave, _build_task_prompt
 from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
 from wave_server import storage
@@ -242,9 +244,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     execution.source_sha = await get_current_sha(repo_cwd)
 
                 # Create work branch: wave/exec-{short_id}
-                # With worktree isolation, we create the branch ref without
-                # checking it out — the main directory stays untouched.
-                # Feature worktrees will branch from this work branch.
+                # With worktree isolation, feature worktrees branch from this.
                 short_id = execution_id[:8]
                 work_branch = f"wave/exec-{short_id}"
                 execution.work_branch = work_branch
@@ -252,7 +252,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 start_point = execution.source_sha or source_branch
 
                 if await branch_exists(repo_cwd, work_branch):
-                    # Resume: reuse existing work branch
+                    # Resume: reuse existing work branch (e.g. from /continue)
                     ok, err = await checkout_branch(repo_cwd, work_branch)
                 else:
                     ok, err = await create_work_branch(repo_cwd, work_branch, start_point)
@@ -283,12 +283,33 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             # Load project environment variables
             from wave_server.models import Project
             project = await db.get(Project, sequence.project_id)
-            project_env: dict[str, str] | None = None
+            project_env: dict[str, str] = {}
             if project and project.env_vars:
                 try:
                     project_env = json.loads(project.env_vars)
                 except (json.JSONDecodeError, TypeError):
                     pass
+
+            # Inject server-wide GitHub token (project env can override)
+            github_token = project_env.get("GITHUB_TOKEN") or server_settings.github_token
+            if github_token and "GITHUB_TOKEN" not in project_env:
+                project_env["GITHUB_TOKEN"] = github_token
+                project_env["GH_TOKEN"] = github_token
+
+            # Inject git identity for agent commits
+            if server_settings.git_committer_name and "GIT_COMMITTER_NAME" not in project_env:
+                project_env["GIT_COMMITTER_NAME"] = server_settings.git_committer_name
+                project_env["GIT_AUTHOR_NAME"] = server_settings.git_committer_name
+            if server_settings.git_committer_email and "GIT_COMMITTER_EMAIL" not in project_env:
+                project_env["GIT_COMMITTER_EMAIL"] = server_settings.git_committer_email
+                project_env["GIT_AUTHOR_EMAIL"] = server_settings.git_committer_email
+
+            # Inject commit signing config (env-only, never touches .git/config)
+            if server_settings.git_signing_key:
+                signing_env = build_signing_env(server_settings.git_signing_key)
+                for k, v in signing_env.items():
+                    if k not in project_env:
+                        project_env[k] = v
 
             # Capture git SHA before execution (now on the work branch)
             execution.git_sha_before = _get_git_sha(repo_cwd)
@@ -434,7 +455,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     data_schemas=plan.data_schemas,
                     project_context=project_context,
                     cwd=repo_cwd,
-                    env=project_env,
+                    env=project_env or None,
                     max_concurrency=max_concurrency,
                     repo_root=repo_cwd if use_git else None,
                     use_worktrees=use_git,
@@ -478,7 +499,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 # Try to push the work branch
                 remote_url = await get_remote_url(repo_cwd)
                 if remote_url:
-                    push_ok, push_err = await push_branch(repo_cwd, execution.work_branch)
+                    push_ok, push_err = await push_branch(
+                        repo_cwd, execution.work_branch,
+                        github_token=github_token,
+                    )
                     if push_ok:
                         # Try to create a PR via gh CLI
                         if await has_gh_cli():
@@ -497,6 +521,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                                 execution.source_branch,
                                 pr_title,
                                 pr_body,
+                                github_token=github_token,
                             )
                             if pr_url:
                                 execution.pr_url = pr_url

@@ -4,13 +4,17 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = {"env_prefix": "WAVE_"}
+    model_config = {"env_prefix": "WAVE_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
     data_dir: Path = Path("./data")
     database_url: str | None = None
     default_concurrency: int = 4
     default_timeout_ms: int = 300_000  # 5 minutes
     runtime: str = "claude"
+    github_token: str | None = None
+    git_committer_name: str | None = None
+    git_committer_email: str | None = None
+    git_signing_key: str | None = None
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
     @property
