@@ -59,6 +59,7 @@ export default function SequenceDetailPage({
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
   useEffect(() => {
     api.getSpec(id).then(setSpec);
@@ -76,6 +77,22 @@ export default function SequenceDetailPage({
     setEditDesc(sequence.description || "");
     setInitialized(true);
   }
+
+  // Default to "executions" tab if any executions exist (wait for data to load)
+  if (activeTab === null && !execLoading && executions !== null) {
+    setActiveTab(executions.length > 0 ? "executions" : "spec");
+  }
+
+  // Derive effective status: if backend still says "drafting" but executions exist,
+  // infer from the most recent execution
+  const effectiveStatus = (() => {
+    if (!sequence) return "drafting";
+    if (sequence.status !== "drafting") return sequence.status;
+    if (!executions || executions.length === 0) return sequence.status;
+    const latest = executions[0];
+    if (latest.status === "running") return "executing";
+    return latest.status;
+  })();
 
   const handleSave = async () => {
     setSaving(true);
@@ -109,9 +126,10 @@ export default function SequenceDetailPage({
     <AppShell
       breadcrumbs={[
         { text: "Projects", href: "/projects" },
-        ...(project
-          ? [{ text: project.name, href: `/projects/${project.id}` }]
-          : []),
+        {
+          text: project ? project.name : "…",
+          href: project ? `/projects/${project.id}` : "/projects",
+        },
         { text: sequence.name, href: `/sequences/${id}` },
       ]}
     >
@@ -131,8 +149,8 @@ export default function SequenceDetailPage({
         >
           {sequence.name}
           <Box margin={{ left: "s" }} display="inline-block">
-            <StatusIndicator type={statusType(sequence.status)}>
-              {sequence.status}
+            <StatusIndicator type={statusType(effectiveStatus)}>
+              {effectiveStatus}
             </StatusIndicator>
           </Box>
         </Header>
@@ -166,6 +184,8 @@ export default function SequenceDetailPage({
         )}
 
         <Tabs
+          activeTabId={activeTab || "spec"}
+          onChange={({ detail }) => setActiveTab(detail.activeTabId)}
           tabs={[
             {
               label: "Spec",
@@ -187,6 +207,21 @@ export default function SequenceDetailPage({
                   loadingText="Loading executions"
                   items={executions || []}
                   columnDefinitions={[
+                    {
+                      id: "id",
+                      header: "Execution",
+                      cell: (item) => (
+                        <Button
+                          variant="inline-link"
+                          onClick={() =>
+                            router.push(`/executions/${item.id}`)
+                          }
+                        >
+                          {item.id.slice(0, 8)}…
+                        </Button>
+                      ),
+                      width: 120,
+                    },
                     {
                       id: "status",
                       header: "Status",
@@ -211,12 +246,6 @@ export default function SequenceDetailPage({
                       width: 120,
                     },
                     {
-                      id: "runtime",
-                      header: "Runtime",
-                      cell: (item) => item.runtime,
-                      width: 100,
-                    },
-                    {
                       id: "started",
                       header: "Started",
                       cell: (item) =>
@@ -225,19 +254,18 @@ export default function SequenceDetailPage({
                           : "—",
                     },
                     {
-                      id: "actions",
-                      header: "Actions",
-                      cell: (item) => (
-                        <Button
-                          variant="inline-link"
-                          onClick={() =>
-                            router.push(`/executions/${item.id}`)
-                          }
-                        >
-                          View
-                        </Button>
-                      ),
-                      width: 80,
+                      id: "finished",
+                      header: "Finished",
+                      cell: (item) =>
+                        item.finished_at
+                          ? new Date(item.finished_at).toLocaleString()
+                          : "—",
+                    },
+                    {
+                      id: "runtime",
+                      header: "Duration",
+                      cell: (item) => item.runtime || "—",
+                      width: 100,
                     },
                   ]}
                   empty={

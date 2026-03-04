@@ -8,7 +8,7 @@ import Popover from "@cloudscape-design/components/popover";
 interface CopyableIdProps {
   /** The ID value to display and copy */
   id: string;
-  /** Optional label shown before the ID (defaults to "ID") */
+  /** Optional label shown before the ID (defaults to "ID"). Pass empty string to hide. */
   label?: string;
 }
 
@@ -37,9 +37,11 @@ export default function CopyableId({ id, label = "ID" }: CopyableIdProps) {
         gap: 4,
       }}
     >
-      <Box variant="small" color="text-body-secondary" display="inline-block">
-        {label}:
-      </Box>
+      {label && (
+        <Box variant="small" color="text-body-secondary" display="inline-block">
+          {label}:
+        </Box>
+      )}
       <Popover
         dismissButton={false}
         position="top"
@@ -58,7 +60,7 @@ export default function CopyableId({ id, label = "ID" }: CopyableIdProps) {
       <Button
         variant="inline-icon"
         iconName="copy"
-        ariaLabel={`Copy ${label}`}
+        ariaLabel={`Copy ${label || "ID"}`}
         onClick={handleCopy}
       />
     </span>

@@ -93,12 +93,14 @@ export default function ExecutionPage({
     <AppShell
       breadcrumbs={[
         { text: "Projects", href: "/projects" },
-        ...(project
-          ? [{ text: project.name, href: `/projects/${project.id}` }]
-          : []),
-        ...(sequence
-          ? [{ text: sequence.name, href: `/sequences/${sequence.id}` }]
-          : []),
+        {
+          text: project ? project.name : "…",
+          href: project ? `/projects/${project.id}` : "/projects",
+        },
+        {
+          text: sequence ? sequence.name : "…",
+          href: sequence ? `/sequences/${sequence.id}` : "#",
+        },
         { text: "Execution", href: `/executions/${id}` },
       ]}
     >
