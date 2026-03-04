@@ -10,6 +10,7 @@ import Header from "@cloudscape-design/components/header";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
+import Badge from "@cloudscape-design/components/badge";
 import AppShell from "@/components/AppShell";
 import BlockerBanner from "@/components/BlockerBanner";
 import LogTail from "@/components/LogTail";
@@ -133,7 +134,11 @@ export default function ExecutionPage({
         <ColumnLayout columns={4}>
           <Container>
             <Box variant="awsui-key-label">Runtime</Box>
-            <Box>{execution.runtime}</Box>
+            <Box>
+              <Badge color={execution.runtime === "claude" ? "blue" : "grey"}>
+                {execution.runtime}
+              </Badge>
+            </Box>
           </Container>
           <Container>
             <Box variant="awsui-key-label">Trigger</Box>
