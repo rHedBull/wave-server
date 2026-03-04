@@ -124,6 +124,10 @@ async def _emit_event(
 
 async def _run_execution(execution_id: str, sequence_id: str) -> None:
     """Background task that runs the full wave execution."""
+    # Lock to serialize all DB writes — prevents SQLite "database is locked"
+    # when concurrent tasks try to commit at the same time.
+    db_lock = asyncio.Lock()
+
     async with async_session() as db:
         try:
             # Load execution and sequence
@@ -234,13 +238,14 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             completed_count = 0
 
             for wave_idx, wave in enumerate(plan.waves):
-                execution.current_wave = wave_idx
-                await db.commit()
+                async with db_lock:
+                    execution.current_wave = wave_idx
+                    await db.commit()
 
-                await _emit_event(
-                    db, execution_id, "phase_changed",
-                    payload={"wave_index": wave_idx, "wave_name": wave.name},
-                )
+                    await _emit_event(
+                        db, execution_id, "phase_changed",
+                        payload={"wave_index": wave_idx, "wave_name": wave.name},
+                    )
 
                 exec_logger.wave_started(wave.name, wave_idx)
                 _flush_log()
@@ -248,11 +253,12 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 async def on_task_start(phase: str, task: Task):
                     exec_logger.task_started(phase, task)
                     _flush_log()
-                    await _emit_event(
-                        db, execution_id, "task_started",
-                        task_id=task.id, phase=phase,
-                        payload={"task_id": task.id, "title": task.title, "agent": task.agent, "phase": phase},
-                    )
+                    async with db_lock:
+                        await _emit_event(
+                            db, execution_id, "task_started",
+                            task_id=task.id, phase=phase,
+                            payload={"task_id": task.id, "title": task.title, "agent": task.agent, "phase": phase},
+                        )
 
                 async def on_task_end(phase: str, task: Task, result: TaskResult):
                     nonlocal completed_count
@@ -263,15 +269,6 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
 
                     event_type = "task_completed" if result.exit_code == 0 else (
                         "task_skipped" if result.exit_code == -1 else "task_failed"
-                    )
-                    await _emit_event(
-                        db, execution_id, event_type,
-                        task_id=task.id, phase=phase,
-                        payload={
-                            "task_id": task.id,
-                            "exit_code": result.exit_code,
-                            "duration_ms": result.duration_ms,
-                        },
                     )
                     # Save task output (extracted final result)
                     if result.output:
@@ -314,9 +311,20 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     except Exception:
                         pass  # Best effort — don't break execution for log formatting
                     _flush_log()
-                    # Update execution count
-                    execution.completed_tasks = completed_count
-                    await db.commit()
+                    # Serialize all DB writes under lock to prevent SQLite contention
+                    async with db_lock:
+                        await _emit_event(
+                            db, execution_id, event_type,
+                            task_id=task.id, phase=phase,
+                            payload={
+                                "task_id": task.id,
+                                "exit_code": result.exit_code,
+                                "duration_ms": result.duration_ms,
+                            },
+                        )
+                        # Update execution count
+                        execution.completed_tasks = completed_count
+                        await db.commit()
                     # Update state
                     if result.exit_code == 0:
                         mark_task_done(state, task.id)
@@ -346,18 +354,19 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 exec_logger.wave_ended(wave.name, wave_idx, passed=wave_result.passed)
                 _flush_log()
 
-                # Save waves state
-                execution.waves_state = json.dumps({
-                    "waves": [
-                        {"name": wave.name, "index": wave_idx, "passed": wave_result.passed}
-                    ]
-                })
-                await db.commit()
+                async with db_lock:
+                    # Save waves state
+                    execution.waves_state = json.dumps({
+                        "waves": [
+                            {"name": wave.name, "index": wave_idx, "passed": wave_result.passed}
+                        ]
+                    })
+                    await db.commit()
 
-                await _emit_event(
-                    db, execution_id, "wave_completed",
-                    payload={"wave_name": wave.name, "passed": wave_result.passed},
-                )
+                    await _emit_event(
+                        db, execution_id, "wave_completed",
+                        payload={"wave_name": wave.name, "passed": wave_result.passed},
+                    )
 
                 if not wave_result.passed:
                     all_passed = False
