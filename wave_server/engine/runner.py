@@ -29,9 +29,11 @@ class ClaudeCodeRunner:
         # create_subprocess_exec passes args directly, no shell interpretation
         cmd = [
             "claude",
+            "--print",
+            "--verbose",
             "--output-format",
             "stream-json",
-            "-p",
+            "--dangerously-skip-permissions",
             config.prompt,
         ]
 
