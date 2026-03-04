@@ -26,6 +26,7 @@ export default function AppShell({
   const pathname = usePathname();
   const [projects, setProjects] = useState<Project[]>([]);
   const [version, setVersion] = useState<string | null>(null);
+  const [navOpen, setNavOpen] = useState(true);
 
   useEffect(() => {
     api.listProjects().then(setProjects).catch(() => {});
@@ -33,6 +34,11 @@ export default function AppShell({
   }, []);
 
   const navItems: SideNavigationProps.Item[] = [
+    {
+      type: "link",
+      text: "Home",
+      href: "/",
+    },
     {
       type: "link",
       text: "Projects",
@@ -55,6 +61,8 @@ export default function AppShell({
 
   return (
     <AppLayout
+      navigationOpen={navOpen}
+      onNavigationChange={({ detail }) => setNavOpen(detail.open)}
       navigation={
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ flex: 1 }}>

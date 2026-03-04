@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Box from "@cloudscape-design/components/box";
 import Button from "@cloudscape-design/components/button";
@@ -18,7 +18,7 @@ import TaskLogSearch from "@/components/TaskLogSearch";
 import TaskTable from "@/components/TaskTable";
 import WaveTimeline from "@/components/WaveTimeline";
 import { useExecution } from "@/hooks/useExecution";
-import { api } from "@/lib/api";
+import { api, type Project, type Sequence } from "@/lib/api";
 
 function statusType(status: string) {
   switch (status) {
@@ -45,6 +45,19 @@ export default function ExecutionPage({
   const { execution, events, tasks, loading, isActive, refetch } =
     useExecution(id);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  const [sequence, setSequence] = useState<Sequence | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    if (execution?.sequence_id) {
+      api.getSequence(execution.sequence_id).then((seq) => {
+        setSequence(seq);
+        if (seq.project_id) {
+          api.getProject(seq.project_id).then(setProject).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  }, [execution?.sequence_id]);
 
   const handleCancel = async () => {
     await api.cancelExecution(id);
@@ -80,6 +93,12 @@ export default function ExecutionPage({
     <AppShell
       breadcrumbs={[
         { text: "Projects", href: "/projects" },
+        ...(project
+          ? [{ text: project.name, href: `/projects/${project.id}` }]
+          : []),
+        ...(sequence
+          ? [{ text: sequence.name, href: `/sequences/${sequence.id}` }]
+          : []),
         { text: "Execution", href: `/executions/${id}` },
       ]}
     >
