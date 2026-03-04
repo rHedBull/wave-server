@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 
 from wave_server.engine.types import FeatureWorktree, MergeResult, SubWorktree
 
 
-async def _run_git(args: list[str], cwd: str) -> tuple[int, str, str]:
+async def _run_git(
+    args: list[str], cwd: str, env: dict[str, str] | None = None
+) -> tuple[int, str, str]:
     """Run a git command via create_subprocess_exec (no shell) and return (exit_code, stdout, stderr)."""
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=cwd,
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -170,23 +174,82 @@ async def get_remote_url(cwd: str, remote: str = "origin") -> str | None:
     return out if code == 0 and out else None
 
 
+def _build_git_env(github_token: str | None = None) -> dict[str, str] | None:
+    """Build env dict with GitHub token for git/gh auth. Returns None if no token."""
+    if not github_token:
+        return None
+    env = {**os.environ, "GITHUB_TOKEN": github_token, "GH_TOKEN": github_token}
+    return env
+
+
+def _inject_token_into_url(remote_url: str, token: str) -> str | None:
+    """Convert a GitHub remote URL to HTTPS with token for authenticated push.
+
+    Handles:
+      git@github.com:owner/repo.git → https://x-access-token:{token}@github.com/owner/repo.git
+      https://github.com/owner/repo.git → https://x-access-token:{token}@github.com/owner/repo.git
+      https://x-access-token:old@github.com/... → replaces old token
+
+    Returns None if the URL is not a recognized GitHub URL.
+    """
+    # SSH: git@github.com:owner/repo.git
+    m = re.match(r"git@github\.com:(.+)", remote_url)
+    if m:
+        return f"https://x-access-token:{token}@github.com/{m.group(1)}"
+
+    # HTTPS with or without existing credentials
+    m = re.match(r"https://(?:[^@]+@)?github\.com/(.+)", remote_url)
+    if m:
+        return f"https://x-access-token:{token}@github.com/{m.group(1)}"
+
+    return None
+
+
 async def push_branch(
-    cwd: str, branch: str, remote: str = "origin"
+    cwd: str,
+    branch: str,
+    remote: str = "origin",
+    github_token: str | None = None,
 ) -> tuple[bool, str]:
-    """Push a branch to a remote. Returns (success, error_message)."""
-    code, out, err = await _run_git(["push", "-u", remote, branch], cwd)
+    """Push a branch to a remote. Uses github_token for auth if provided."""
+    env = _build_git_env(github_token)
+
+    if github_token:
+        # Get remote URL and inject token for authenticated HTTPS push
+        remote_url = await get_remote_url(cwd, remote)
+        if remote_url:
+            auth_url = _inject_token_into_url(remote_url, github_token)
+            if auth_url:
+                # Push to the authenticated URL directly instead of the remote name
+                code, out, err = await _run_git(
+                    ["push", "-u", auth_url, branch], cwd, env=env
+                )
+                if code != 0:
+                    return False, f"Failed to push {branch}: {err}"
+                return True, ""
+
+    # Fallback: push using remote name (relies on system git credentials)
+    code, out, err = await _run_git(["push", "-u", remote, branch], cwd, env=env)
     if code != 0:
         return False, f"Failed to push {branch}: {err}"
     return True, ""
 
 
 async def create_pr(
-    cwd: str, work_branch: str, target_branch: str, title: str, body: str
+    cwd: str,
+    work_branch: str,
+    target_branch: str,
+    title: str,
+    body: str,
+    github_token: str | None = None,
 ) -> tuple[str | None, str]:
     """Create a GitHub PR using the gh CLI.
 
     Returns (pr_url, error_message). pr_url is None on failure.
+    Uses github_token for auth if provided (via GITHUB_TOKEN env var).
     """
+    env = _build_git_env(github_token)
+
     proc = await asyncio.create_subprocess_exec(
         "gh", "pr", "create",
         "--base", target_branch,
@@ -194,6 +257,7 @@ async def create_pr(
         "--title", title,
         "--body", body,
         cwd=cwd,
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

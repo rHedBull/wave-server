@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     default_concurrency: int = 4
     default_timeout_ms: int = 300_000  # 5 minutes
     runtime: str = "claude"
+    github_token: str | None = None
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
     @property

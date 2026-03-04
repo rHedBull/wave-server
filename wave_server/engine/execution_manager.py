@@ -44,6 +44,7 @@ from wave_server.engine.git_worktree import (
     push_branch,
     sha_exists,
 )
+from wave_server.config import settings as server_settings
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave, _build_task_prompt
 from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
 from wave_server import storage
@@ -291,12 +292,18 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             # Load project environment variables
             from wave_server.models import Project
             project = await db.get(Project, sequence.project_id)
-            project_env: dict[str, str] | None = None
+            project_env: dict[str, str] = {}
             if project and project.env_vars:
                 try:
                     project_env = json.loads(project.env_vars)
                 except (json.JSONDecodeError, TypeError):
                     pass
+
+            # Inject server-wide GitHub token (project env can override)
+            github_token = project_env.get("GITHUB_TOKEN") or server_settings.github_token
+            if github_token and "GITHUB_TOKEN" not in project_env:
+                project_env["GITHUB_TOKEN"] = github_token
+                project_env["GH_TOKEN"] = github_token
 
             # Capture git SHA before execution (now on the work branch)
             execution.git_sha_before = _get_git_sha(repo_cwd)
@@ -442,7 +449,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     data_schemas=plan.data_schemas,
                     project_context=project_context,
                     cwd=repo_cwd,
-                    env=project_env,
+                    env=project_env or None,
                     max_concurrency=max_concurrency,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,
@@ -484,7 +491,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 # Try to push the work branch
                 remote_url = await get_remote_url(repo_cwd)
                 if remote_url:
-                    push_ok, push_err = await push_branch(repo_cwd, execution.work_branch)
+                    push_ok, push_err = await push_branch(
+                        repo_cwd, execution.work_branch,
+                        github_token=github_token,
+                    )
                     if push_ok:
                         # Try to create a PR via gh CLI
                         if await has_gh_cli():
@@ -503,6 +513,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                                 execution.source_branch,
                                 pr_title,
                                 pr_body,
+                                github_token=github_token,
                             )
                             if pr_url:
                                 execution.pr_url = pr_url
