@@ -75,6 +75,11 @@ export default function TaskTable({
           width: 180,
         },
         {
+          id: "title",
+          header: "Title",
+          cell: (item) => item.title || "—",
+        },
+        {
           id: "status",
           header: "Status",
           cell: (item) => (
@@ -83,11 +88,6 @@ export default function TaskTable({
             </StatusIndicator>
           ),
           width: 120,
-        },
-        {
-          id: "title",
-          header: "Title",
-          cell: (item) => item.title || "—",
         },
         {
           id: "agent",
