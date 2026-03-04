@@ -22,6 +22,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     api_key: Mapped[str] = mapped_column(String, unique=True, default=_uuid)
+    env_vars: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -65,6 +66,10 @@ class Execution(Base):
     current_wave: Mapped[int] = mapped_column(Integer, default=0)
     waves_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    work_branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_before: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_after: Mapped[str | None] = mapped_column(String, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(

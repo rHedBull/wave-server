@@ -31,6 +31,21 @@ from wave_server.engine.state import (
     state_to_json,
 )
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
+from wave_server.engine.git_worktree import (
+    branch_exists,
+    build_signing_env,
+    checkout_branch,
+    create_pr,
+    create_work_branch,
+    get_current_branch,
+    get_current_sha,
+    get_remote_url,
+    has_gh_cli,
+    is_git_repo,
+    push_branch,
+    sha_exists,
+)
+from wave_server.config import settings as server_settings
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave, _build_task_prompt
 from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
 from wave_server import storage
@@ -128,6 +143,11 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
     # when concurrent tasks try to commit at the same time.
     db_lock = asyncio.Lock()
 
+    # Track git state for cleanup in error handlers
+    use_git = False
+    original_branch: str | None = None
+    repo_cwd: str | None = None
+
     async with async_session() as db:
         try:
             # Load execution and sequence
@@ -200,6 +220,67 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 )
                 return
 
+            # ── Git branch setup ───────────────────────────────
+            use_git = await is_git_repo(repo_cwd)
+
+            if use_git:
+                original_branch = await get_current_branch(repo_cwd)
+
+                # Resolve source branch: explicit > current
+                source_branch = execution.source_branch or original_branch or "main"
+                execution.source_branch = source_branch
+
+                # Resolve source SHA: explicit > HEAD of source branch
+                if execution.source_sha:
+                    if not await sha_exists(repo_cwd, execution.source_sha):
+                        execution.status = "failed"
+                        await db.commit()
+                        await _emit_event(
+                            db, execution_id, "run_completed",
+                            payload={"passed": False, "error": f"Source SHA {execution.source_sha} not found in repo"},
+                        )
+                        return
+                else:
+                    # Ensure we're on the source branch to get its HEAD
+                    if original_branch != source_branch:
+                        ok, err = await checkout_branch(repo_cwd, source_branch)
+                        if not ok:
+                            execution.status = "failed"
+                            await db.commit()
+                            await _emit_event(
+                                db, execution_id, "run_completed",
+                                payload={"passed": False, "error": f"Cannot checkout source branch: {err}"},
+                            )
+                            return
+                    execution.source_sha = await get_current_sha(repo_cwd)
+
+                # Create work branch: wave/exec-{short_id}
+                short_id = execution_id[:8]
+                work_branch = f"wave/exec-{short_id}"
+                execution.work_branch = work_branch
+
+                start_point = execution.source_sha or source_branch
+
+                if await branch_exists(repo_cwd, work_branch):
+                    # Resume: reuse existing work branch (e.g. from /continue)
+                    ok, err = await checkout_branch(repo_cwd, work_branch)
+                else:
+                    ok, err = await create_work_branch(repo_cwd, work_branch, start_point)
+
+                if not ok:
+                    # Try to restore original branch before failing
+                    if original_branch:
+                        await checkout_branch(repo_cwd, original_branch)
+                    execution.status = "failed"
+                    await db.commit()
+                    await _emit_event(
+                        db, execution_id, "run_completed",
+                        payload={"passed": False, "error": f"Cannot create work branch: {err}"},
+                    )
+                    return
+
+                await db.commit()
+
             # Load project context files
             ctx_result = await db.execute(
                 select(ProjectContextFile)
@@ -209,9 +290,49 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             context_files = ctx_result.scalars().all()
             project_context = _load_context_files(context_files, repo_cwd)
 
-            # Capture git SHA before execution
+            # Load project environment variables
+            from wave_server.models import Project
+            project = await db.get(Project, sequence.project_id)
+            project_env: dict[str, str] = {}
+            if project and project.env_vars:
+                try:
+                    project_env = json.loads(project.env_vars)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Inject server-wide GitHub token (project env can override)
+            github_token = project_env.get("GITHUB_TOKEN") or server_settings.github_token
+            if github_token and "GITHUB_TOKEN" not in project_env:
+                project_env["GITHUB_TOKEN"] = github_token
+                project_env["GH_TOKEN"] = github_token
+
+            # Inject git identity for agent commits
+            if server_settings.git_committer_name and "GIT_COMMITTER_NAME" not in project_env:
+                project_env["GIT_COMMITTER_NAME"] = server_settings.git_committer_name
+                project_env["GIT_AUTHOR_NAME"] = server_settings.git_committer_name
+            if server_settings.git_committer_email and "GIT_COMMITTER_EMAIL" not in project_env:
+                project_env["GIT_COMMITTER_EMAIL"] = server_settings.git_committer_email
+                project_env["GIT_AUTHOR_EMAIL"] = server_settings.git_committer_email
+
+            # Inject commit signing config (env-only, never touches .git/config)
+            if server_settings.git_signing_key:
+                signing_env = build_signing_env(server_settings.git_signing_key)
+                for k, v in signing_env.items():
+                    if k not in project_env:
+                        project_env[k] = v
+
+            # Capture git SHA before execution (now on the work branch)
             execution.git_sha_before = _get_git_sha(repo_cwd)
             await db.commit()
+
+            await _emit_event(
+                db, execution_id, "branch_created",
+                payload={
+                    "source_branch": execution.source_branch,
+                    "source_sha": execution.source_sha,
+                    "work_branch": execution.work_branch,
+                },
+            )
 
             # Load state for resume
             state = create_initial_state("plan.md")
@@ -344,6 +465,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     data_schemas=plan.data_schemas,
                     project_context=project_context,
                     cwd=repo_cwd,
+                    env=project_env or None,
                     max_concurrency=max_concurrency,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,
@@ -377,6 +499,53 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             if repo_cwd:
                 execution.git_sha_after = _get_git_sha(repo_cwd)
 
+            # ── Push + PR (best-effort, only on success) ───────
+            pr_url: str | None = None
+            pr_error: str | None = None
+
+            if all_passed and use_git and execution.work_branch and execution.source_branch:
+                # Try to push the work branch
+                remote_url = await get_remote_url(repo_cwd)
+                if remote_url:
+                    push_ok, push_err = await push_branch(
+                        repo_cwd, execution.work_branch,
+                        github_token=github_token,
+                    )
+                    if push_ok:
+                        # Try to create a PR via gh CLI
+                        if await has_gh_cli():
+                            seq_name = sequence.name if sequence else "execution"
+                            pr_title = f"wave: {seq_name}"
+                            pr_body = (
+                                f"Automated PR from wave execution `{execution_id[:8]}`.\n\n"
+                                f"**Goal:** {plan.goal or 'N/A'}\n"
+                                f"**Tasks:** {completed_count}/{total_tasks} completed\n"
+                                f"**Waves:** {len(plan.waves)}\n"
+                                f"**Source:** `{execution.source_branch}` @ `{execution.source_sha[:8] if execution.source_sha else 'N/A'}`"
+                            )
+                            pr_url, pr_err = await create_pr(
+                                repo_cwd,
+                                execution.work_branch,
+                                execution.source_branch,
+                                pr_title,
+                                pr_body,
+                                github_token=github_token,
+                            )
+                            if pr_url:
+                                execution.pr_url = pr_url
+                            else:
+                                pr_error = pr_err
+                        else:
+                            pr_error = "gh CLI not available — branch pushed but PR not created"
+                    else:
+                        pr_error = push_err
+                else:
+                    pr_error = "No remote configured — work branch available locally"
+
+            # Restore original branch (best-effort)
+            if use_git and original_branch and original_branch != execution.work_branch:
+                await checkout_branch(repo_cwd, original_branch)
+
             # Complete
             duration_ms = int((time.monotonic() - start_time) * 1000)
             execution.status = "completed" if all_passed else "failed"
@@ -389,17 +558,27 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             exec_logger.execution_finished(all_passed=all_passed)
             _flush_log()
 
+            run_payload: dict = {
+                "passed": all_passed,
+                "total_tasks": total_tasks,
+                "completed_tasks": completed_count,
+                "duration_ms": duration_ms,
+                "work_branch": execution.work_branch,
+            }
+            if pr_url:
+                run_payload["pr_url"] = pr_url
+            if pr_error:
+                run_payload["pr_note"] = pr_error
+
             await _emit_event(
                 db, execution_id, "run_completed",
-                payload={
-                    "passed": all_passed,
-                    "total_tasks": total_tasks,
-                    "completed_tasks": completed_count,
-                    "duration_ms": duration_ms,
-                },
+                payload=run_payload,
             )
 
         except asyncio.CancelledError:
+            # Restore original branch on cancellation (best-effort)
+            if use_git and original_branch and repo_cwd:
+                await checkout_branch(repo_cwd, original_branch)
             async with async_session() as db2:
                 execution = await db2.get(Execution, execution_id)
                 if execution:
@@ -412,6 +591,9 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             raise
 
         except Exception as e:
+            # Restore original branch on failure (best-effort)
+            if use_git and original_branch and repo_cwd:
+                await checkout_branch(repo_cwd, original_branch)
             async with async_session() as db2:
                 execution = await db2.get(Execution, execution_id)
                 if execution:
