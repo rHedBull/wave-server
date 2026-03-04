@@ -33,6 +33,7 @@ from wave_server.engine.state import (
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
 from wave_server.engine.git_worktree import (
     branch_exists,
+    build_signing_env,
     checkout_branch,
     create_pr,
     create_work_branch,
@@ -304,6 +305,21 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             if github_token and "GITHUB_TOKEN" not in project_env:
                 project_env["GITHUB_TOKEN"] = github_token
                 project_env["GH_TOKEN"] = github_token
+
+            # Inject git identity for agent commits
+            if server_settings.git_committer_name and "GIT_COMMITTER_NAME" not in project_env:
+                project_env["GIT_COMMITTER_NAME"] = server_settings.git_committer_name
+                project_env["GIT_AUTHOR_NAME"] = server_settings.git_committer_name
+            if server_settings.git_committer_email and "GIT_COMMITTER_EMAIL" not in project_env:
+                project_env["GIT_COMMITTER_EMAIL"] = server_settings.git_committer_email
+                project_env["GIT_AUTHOR_EMAIL"] = server_settings.git_committer_email
+
+            # Inject commit signing config (env-only, never touches .git/config)
+            if server_settings.git_signing_key:
+                signing_env = build_signing_env(server_settings.git_signing_key)
+                for k, v in signing_env.items():
+                    if k not in project_env:
+                        project_env[k] = v
 
             # Capture git SHA before execution (now on the work branch)
             execution.git_sha_before = _get_git_sha(repo_cwd)

@@ -271,6 +271,39 @@ async def create_pr(
     return None, f"gh pr create failed: {err or out}"
 
 
+def build_signing_env(signing_key: str) -> dict[str, str]:
+    """Build env vars for git commit signing. Does NOT touch repo config.
+
+    Auto-detects key type:
+    - Paths containing / or ~ or ending in .pub → SSH signing
+    - Otherwise → GPG key ID
+
+    All config is passed via GIT_CONFIG_* env vars so it only affects
+    the subprocess — your repo's .git/config is never modified.
+    """
+    is_ssh = "/" in signing_key or "~" in signing_key or signing_key.endswith(".pub")
+    key_path = os.path.expanduser(signing_key)
+
+    env: dict[str, str] = {}
+
+    if is_ssh:
+        env["GIT_CONFIG_COUNT"] = "3"
+        env["GIT_CONFIG_KEY_0"] = "gpg.format"
+        env["GIT_CONFIG_VALUE_0"] = "ssh"
+        env["GIT_CONFIG_KEY_1"] = "user.signingkey"
+        env["GIT_CONFIG_VALUE_1"] = key_path
+        env["GIT_CONFIG_KEY_2"] = "commit.gpgsign"
+        env["GIT_CONFIG_VALUE_2"] = "true"
+    else:
+        env["GIT_CONFIG_COUNT"] = "2"
+        env["GIT_CONFIG_KEY_0"] = "user.signingkey"
+        env["GIT_CONFIG_VALUE_0"] = signing_key
+        env["GIT_CONFIG_KEY_1"] = "commit.gpgsign"
+        env["GIT_CONFIG_VALUE_1"] = "true"
+
+    return env
+
+
 async def has_gh_cli() -> bool:
     """Check if the gh CLI is available."""
     try:
