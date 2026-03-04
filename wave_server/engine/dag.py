@@ -179,6 +179,15 @@ def build_dag(tasks: list[Task]) -> list[DAGLevel]:
     return levels
 
 
+def get_dag_levels(tasks: list[Task]) -> list[DAGLevel]:
+    """Return DAG levels for level-by-level execution.
+
+    Alias for build_dag — provided for semantic clarity in the feature
+    executor which needs level-by-level control for sub-worktree hooks.
+    """
+    return build_dag(tasks)
+
+
 # ── Concurrent Execution Helper ────────────────────────────────────
 
 

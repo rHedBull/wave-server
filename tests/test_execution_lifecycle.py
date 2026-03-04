@@ -200,7 +200,31 @@ class TestWaveStateTransitions:
         assert result.feature_results[0].passed
 
     @pytest.mark.asyncio
-    async def test_first_task_failure_stops_feature(self):
+    async def test_first_task_failure_stops_dependents(self):
+        """When a task fails, its dependents should be skipped."""
+        wave = Wave(
+            name="W1",
+            features=[
+                Feature(name="default", tasks=[
+                    _task("1-1"),
+                    _task("1-2", depends=["1-1"]),
+                    _task("1-3", depends=["1-2"]),
+                ])
+            ],
+        )
+        runner = MockRunner(results={"1-1": 1})
+        result = await execute_wave(
+            WaveExecutorOptions(wave=wave, wave_num=1, runner=runner)
+        )
+        assert not result.passed
+        # Only 1-1 should have been spawned; 1-2 and 1-3 are dependents → skipped
+        assert "1-1" in runner.spawned
+        assert "1-2" not in runner.spawned
+        assert "1-3" not in runner.spawned
+
+    @pytest.mark.asyncio
+    async def test_independent_tasks_all_run_on_failure(self):
+        """Independent tasks within a feature all run even if one fails."""
         wave = Wave(
             name="W1",
             features=[
@@ -212,19 +236,24 @@ class TestWaveStateTransitions:
             WaveExecutorOptions(wave=wave, wave_num=1, runner=runner)
         )
         assert not result.passed
-        # Only 1-1 should have been spawned; 1-2 and 1-3 skipped
+        # All are independent → all run (DAG behavior)
         assert "1-1" in runner.spawned
-        assert "1-2" not in runner.spawned
-        assert "1-3" not in runner.spawned
+        assert "1-2" in runner.spawned
+        assert "1-3" in runner.spawned
 
     @pytest.mark.asyncio
-    async def test_middle_task_failure_stops_remaining(self):
+    async def test_middle_task_failure_stops_dependents(self):
+        """When a middle task in a chain fails, later dependents are skipped."""
         wave = Wave(
             name="W1",
             features=[
                 Feature(
                     name="default",
-                    tasks=[_task("1-1"), _task("1-2"), _task("1-3")],
+                    tasks=[
+                        _task("1-1"),
+                        _task("1-2", depends=["1-1"]),
+                        _task("1-3", depends=["1-2"]),
+                    ],
                 )
             ],
         )
@@ -407,6 +436,7 @@ class TestWaveCallbacks:
                 wave=wave,
                 wave_num=1,
                 runner=runner,
+                use_worktrees=False,
                 on_progress=lambda p: phases.append(p.phase),
             )
         )

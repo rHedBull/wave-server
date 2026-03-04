@@ -16,10 +16,19 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from wave_server.engine.dag import execute_dag, map_concurrent
+from wave_server.engine.feature_executor import execute_feature as _execute_feature
+from wave_server.engine.git_worktree import (
+    cleanup_all,
+    commit_task_output,
+    create_feature_worktree,
+    is_git_repo,
+    merge_feature_branches,
+)
 from wave_server.engine.runner import AgentRunner
 from wave_server.engine.types import (
     Feature,
     FeatureResult,
+    FeatureWorktree,
     MergeResult,
     ProgressUpdate,
     Task,
@@ -41,6 +50,8 @@ class WaveExecutorOptions:
     env: dict[str, str] | None = None
     max_concurrency: int = 4
     skip_task_ids: set[str] = field(default_factory=set)
+    repo_root: str | None = None    # separate from cwd for worktree creation
+    use_worktrees: bool = True       # can disable for non-git or testing
 
     # Callbacks (async or sync — async callbacks are awaited)
     on_progress: Callable[[ProgressUpdate], Any] | None = None
@@ -118,6 +129,17 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             timed_out=runner_result.timed_out,
         )
 
+        # Per-task commit for foundation/integration tasks (only on work branches)
+        if result.exit_code == 0 and opts.repo_root:
+            committed = await commit_task_output(
+                opts.cwd, task.id, task.title, task.agent
+            )
+            if committed:
+                await _call(
+                    opts.on_log,
+                    f"   📌 Committed: {task.id} [{task.agent}] — {task.title}",
+                )
+
         await _call(opts.on_task_end, phase, task, result)
 
         return result
@@ -163,39 +185,93 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         )
         await _call(opts.on_log, "### Features")
 
+        # Single feature with name "default" → no git isolation needed
+        is_single_default = len(wave.features) == 1 and wave.features[0].name == "default"
+
+        # Determine if we should use git worktree isolation
+        repo_root = opts.repo_root or opts.cwd
+        use_git = opts.use_worktrees and not is_single_default
+        if use_git:
+            use_git = await is_git_repo(repo_root)
+
+        # Create feature worktrees
+        all_feature_worktrees: list[FeatureWorktree] = []
+        feature_worktree_map: dict[str, FeatureWorktree | None] = {}
+
+        if use_git:
+            for feature in wave.features:
+                wt = await create_feature_worktree(repo_root, opts.wave_num, feature.name)
+                feature_worktree_map[feature.name] = wt
+                if wt:
+                    all_feature_worktrees.append(wt)
+
         per_feature_concurrency = max(
             2, opts.max_concurrency // len(wave.features)
         )
 
         async def run_feature(feature: Feature, idx: int) -> FeatureResult:
-            task_results: list[TaskResult] = []
-            for task in feature.tasks:
-                result = await run_task_with_runner(task, f"feature:{feature.name}")
-                task_results.append(result)
-                if result.exit_code != 0:
-                    break  # Stop feature on first failure
+            feature_wt = feature_worktree_map.get(feature.name)
 
-            all_passed = all(r.exit_code == 0 for r in task_results)
-            return FeatureResult(
-                name=feature.name,
-                branch="",
-                task_results=task_results,
-                passed=all_passed,
+            result = await _execute_feature(
+                feature=feature,
+                runner=opts.runner,
+                spec_content=opts.spec_content,
+                data_schemas=opts.data_schemas,
+                project_context=opts.project_context,
+                cwd=opts.cwd,
+                max_concurrency=per_feature_concurrency,
+                skip_task_ids=opts.skip_task_ids,
+                feature_worktree=feature_wt,
+                wave_num=opts.wave_num,
+                env=opts.env,
+                auto_commit=opts.repo_root is not None,
+                on_task_start=lambda task: _call(opts.on_task_start, f"feature:{feature.name}", task),
+                on_task_end=lambda task, tr: _call(opts.on_task_end, f"feature:{feature.name}", task, tr),
+                on_log=opts.on_log,
             )
 
-        # For now, run features sequentially (git worktree isolation is Phase 2 task 13)
-        # When git worktree support is added, features with isolation can run in parallel
-        is_single_default = len(wave.features) == 1 and wave.features[0].name == "default"
+            return result
 
+        # Run features in parallel if using git isolation, sequentially otherwise
         f_results = await map_concurrent(
             wave.features,
-            1 if is_single_default else len(wave.features),
+            len(wave.features) if use_git else 1,
             run_feature,
         )
         feature_results.extend(f_results)
 
+        # ── 2b. Merge Phase ────────────────────────────────────
+
+        if use_git and all_feature_worktrees:
+            await _call(opts.on_progress, ProgressUpdate(phase="merge"))
+            await _call(opts.on_log, "### Merge")
+
+            merge_results = await merge_feature_branches(
+                repo_root,
+                all_feature_worktrees,
+                [{"name": r.name, "passed": r.passed} for r in f_results],
+                runner=opts.runner,
+            )
+
+            for mr in merge_results:
+                await _call(opts.on_merge_result, mr)
+
+            merge_conflicts = [m for m in merge_results if not m.success and m.had_changes]
+            if merge_conflicts:
+                await _call(opts.on_log, "Merge conflicts detected — skipping integration")
+                return WaveResult(
+                    wave=wave.name,
+                    foundation_results=foundation_results,
+                    feature_results=feature_results,
+                    integration_results=integration_results,
+                    passed=False,
+                )
+
         if any(not r.passed for r in f_results):
             await _call(opts.on_log, "One or more features failed — skipping integration")
+            # Emergency cleanup if worktrees remain
+            if use_git and all_feature_worktrees:
+                await cleanup_all(repo_root, all_feature_worktrees)
             return WaveResult(
                 wave=wave.name,
                 foundation_results=foundation_results,
