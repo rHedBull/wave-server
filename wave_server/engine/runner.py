@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Protocol, runtime_checkable
 
 from wave_server.engine.types import RunnerConfig, RunnerResult
@@ -38,9 +39,15 @@ class ClaudeCodeRunner:
         ]
 
         try:
+            # Merge project env vars into the subprocess environment
+            spawn_env = None
+            if config.env:
+                spawn_env = {**os.environ, **config.env}
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=config.cwd,
+                env=spawn_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

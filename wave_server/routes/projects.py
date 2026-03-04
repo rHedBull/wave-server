@@ -1,3 +1,4 @@
+import json
 import uuid
 from pathlib import Path
 
@@ -220,4 +221,75 @@ async def delete_context_file(
     if not cf or cf.project_id != project_id:
         raise HTTPException(404, "Context file not found")
     await db.delete(cf)
+    await db.commit()
+
+
+# --- Environment Variables ---
+
+
+def _get_env(project: Project) -> dict[str, str]:
+    """Parse env_vars JSON from project. Returns empty dict if unset."""
+    if not project.env_vars:
+        return {}
+    try:
+        return json.loads(project.env_vars)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _set_env(project: Project, env: dict[str, str]) -> None:
+    """Serialize env dict to project. Clears column if empty."""
+    project.env_vars = json.dumps(env) if env else None
+
+
+@router.put("/projects/{project_id}/env", status_code=200)
+async def set_env_vars(
+    project_id: str,
+    body: dict[str, str],
+    db: AsyncSession = Depends(get_db),
+):
+    """Set environment variables (merge with existing). Values are stored, keys returned."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    env = _get_env(project)
+    env.update(body)
+    _set_env(project, env)
+    await db.commit()
+    return {"keys": sorted(env.keys()), "count": len(env)}
+
+
+@router.get("/projects/{project_id}/env")
+async def list_env_vars(project_id: str, db: AsyncSession = Depends(get_db)):
+    """List environment variable keys (values are never exposed via API)."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    env = _get_env(project)
+    return {"keys": sorted(env.keys()), "count": len(env)}
+
+
+@router.delete("/projects/{project_id}/env/{key}", status_code=204)
+async def delete_env_var(
+    project_id: str, key: str, db: AsyncSession = Depends(get_db)
+):
+    """Remove a single environment variable."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    env = _get_env(project)
+    if key not in env:
+        raise HTTPException(404, f"Environment variable '{key}' not found")
+    del env[key]
+    _set_env(project, env)
+    await db.commit()
+
+
+@router.delete("/projects/{project_id}/env", status_code=204)
+async def clear_env_vars(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Remove all environment variables."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _set_env(project, {})
     await db.commit()

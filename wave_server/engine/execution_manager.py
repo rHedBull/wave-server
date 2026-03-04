@@ -288,6 +288,16 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             context_files = ctx_result.scalars().all()
             project_context = _load_context_files(context_files, repo_cwd)
 
+            # Load project environment variables
+            from wave_server.models import Project
+            project = await db.get(Project, sequence.project_id)
+            project_env: dict[str, str] | None = None
+            if project and project.env_vars:
+                try:
+                    project_env = json.loads(project.env_vars)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             # Capture git SHA before execution (now on the work branch)
             execution.git_sha_before = _get_git_sha(repo_cwd)
             await db.commit()
@@ -432,6 +442,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     data_schemas=plan.data_schemas,
                     project_context=project_context,
                     cwd=repo_cwd,
+                    env=project_env,
                     max_concurrency=max_concurrency,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,

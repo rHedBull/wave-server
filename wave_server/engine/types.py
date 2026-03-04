@@ -102,6 +102,7 @@ class RunnerConfig:
     prompt: str
     cwd: str
     timeout_ms: int | None = None
+    env: dict[str, str] | None = None
 
 
 @dataclass
