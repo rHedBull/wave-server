@@ -262,9 +262,22 @@ export default function SequenceDetailPage({
                           : "—",
                     },
                     {
-                      id: "runtime",
+                      id: "duration",
                       header: "Duration",
-                      cell: (item) => item.runtime || "—",
+                      cell: (item) => {
+                        if (!item.started_at) return "—";
+                        const start = new Date(item.started_at).getTime();
+                        const end = item.finished_at
+                          ? new Date(item.finished_at).getTime()
+                          : Date.now();
+                        const secs = Math.floor((end - start) / 1000);
+                        if (secs < 60) return `${secs}s`;
+                        const mins = Math.floor(secs / 60);
+                        const rem = secs % 60;
+                        if (mins < 60) return `${mins}m ${rem}s`;
+                        const hrs = Math.floor(mins / 60);
+                        return `${hrs}h ${mins % 60}m`;
+                      },
                       width: 100,
                     },
                   ]}
