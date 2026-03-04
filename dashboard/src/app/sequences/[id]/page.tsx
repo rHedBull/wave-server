@@ -17,7 +17,7 @@ import AppShell from "@/components/AppShell";
 import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import MarkdownView from "@/components/MarkdownView";
 import { usePolling } from "@/hooks/usePolling";
-import { api, type Execution, type Sequence } from "@/lib/api";
+import { api, type Execution, type Project, type Sequence } from "@/lib/api";
 
 function statusType(status: string) {
   switch (status) {
@@ -48,6 +48,7 @@ export default function SequenceDetailPage({
 
   const { data: sequence, refetch: refetchSeq } = usePolling(seqFetcher, 10000);
   const { data: executions, loading: execLoading, refetch: refetchExecs } = usePolling(execFetcher, 5000);
+  const [project, setProject] = useState<Project | null>(null);
 
   const [spec, setSpec] = useState<string | null>(null);
   const [plan, setPlan] = useState<string | null>(null);
@@ -63,6 +64,12 @@ export default function SequenceDetailPage({
     api.getSpec(id).then(setSpec);
     api.getPlan(id).then(setPlan);
   }, [id]);
+
+  useEffect(() => {
+    if (sequence?.project_id) {
+      api.getProject(sequence.project_id).then(setProject).catch(() => {});
+    }
+  }, [sequence?.project_id]);
 
   if (sequence && !initialized) {
     setEditName(sequence.name);
@@ -102,7 +109,10 @@ export default function SequenceDetailPage({
     <AppShell
       breadcrumbs={[
         { text: "Projects", href: "/projects" },
-        { text: "Sequence", href: `/sequences/${id}` },
+        ...(project
+          ? [{ text: project.name, href: `/projects/${project.id}` }]
+          : []),
+        { text: sequence.name, href: `/sequences/${id}` },
       ]}
     >
       <SpaceBetween size="l">
