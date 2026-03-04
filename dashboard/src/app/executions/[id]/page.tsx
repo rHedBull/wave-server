@@ -11,6 +11,7 @@ import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Badge from "@cloudscape-design/components/badge";
+import SplitPanel from "@cloudscape-design/components/split-panel";
 import AppShell from "@/components/AppShell";
 import BlockerBanner from "@/components/BlockerBanner";
 import LogTail from "@/components/LogTail";
@@ -90,6 +91,10 @@ export default function ExecutionPage({
     );
   }
 
+  const selectedTaskData = selectedTask
+    ? tasks.find((t: Record<string, unknown>) => t.task_id === selectedTask)
+    : undefined;
+
   return (
     <AppShell
       breadcrumbs={[
@@ -104,6 +109,24 @@ export default function ExecutionPage({
         },
         { text: "Execution", href: `/executions/${id}` },
       ]}
+      splitPanel={
+        selectedTask ? (
+          <SplitPanel
+            header={`Task: ${selectedTask}`}
+            closeBehavior="hide"
+          >
+            <TaskDetail
+              executionId={id}
+              taskId={selectedTask}
+              task={selectedTaskData}
+            />
+          </SplitPanel>
+        ) : undefined
+      }
+      splitPanelOpen={!!selectedTask}
+      onSplitPanelToggle={(open) => {
+        if (!open) setSelectedTask(null);
+      }}
     >
       <SpaceBetween size="l">
         <Header
@@ -179,15 +202,6 @@ export default function ExecutionPage({
           executionId={id}
           onSelectTask={setSelectedTask}
         />
-
-        {/* Task Detail */}
-        {selectedTask && (
-          <TaskDetail
-            executionId={id}
-            taskId={selectedTask}
-            task={tasks.find((t: Record<string, unknown>) => t.task_id === selectedTask)}
-          />
-        )}
 
         {/* Log Tail */}
         <LogTail executionId={id} isActive={isActive} />

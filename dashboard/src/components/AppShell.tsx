@@ -15,12 +15,18 @@ interface AppShellProps {
   children: React.ReactNode;
   breadcrumbs?: BreadcrumbGroupProps.Item[];
   activeHref?: string;
+  splitPanel?: React.ReactNode;
+  splitPanelOpen?: boolean;
+  onSplitPanelToggle?: (open: boolean) => void;
 }
 
 export default function AppShell({
   children,
   breadcrumbs = [],
   activeHref,
+  splitPanel,
+  splitPanelOpen,
+  onSplitPanelToggle,
 }: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -97,6 +103,11 @@ export default function AppShell({
         />
       }
       content={children}
+      splitPanel={splitPanel}
+      splitPanelOpen={splitPanelOpen ?? false}
+      onSplitPanelToggle={({ detail }) => onSplitPanelToggle?.(detail.open)}
+      splitPanelPreferences={{ position: "side" }}
+      onSplitPanelPreferencesChange={() => {}}
       toolsHide
     />
   );

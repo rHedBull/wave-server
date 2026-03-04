@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@cloudscape-design/components/box";
-import Container from "@cloudscape-design/components/container";
-import Header from "@cloudscape-design/components/header";
 import Spinner from "@cloudscape-design/components/spinner";
+import SpaceBetween from "@cloudscape-design/components/space-between";
 import Tabs from "@cloudscape-design/components/tabs";
 import { api } from "@/lib/api";
 
@@ -78,25 +77,16 @@ function TaskDetailInner({
     whiteSpace: "pre-wrap" as const,
     margin: 0,
     fontSize: "12px",
-    maxHeight: "600px",
     overflow: "auto" as const,
   };
 
   return (
-    <Container
-      header={
-        <Header
-          variant="h3"
-          description={
-            metadata.length > 0
-              ? metadata.join(" | ")
-              : `Task output for ${taskId}`
-          }
-        >
-          Task: {taskId}
-        </Header>
-      }
-    >
+    <SpaceBetween size="s">
+      {metadata.length > 0 && (
+        <Box variant="small" color="text-body-secondary">
+          {metadata.join(" | ")}
+        </Box>
+      )}
       {loading ? (
         <Spinner />
       ) : (
@@ -142,6 +132,6 @@ function TaskDetailInner({
           ]}
         />
       )}
-    </Container>
+    </SpaceBetween>
   );
 }
