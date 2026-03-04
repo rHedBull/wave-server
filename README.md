@@ -16,7 +16,7 @@ uv sync --group dev  # for tests
 Start the server:
 
 ```sh
-python main.py
+uv run main.py
 # or
 uvicorn wave_server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -31,6 +31,7 @@ Start the dashboard (separate terminal):
 
 ```sh
 cd dashboard
+cp .env.example .env.local  # sets NEXT_PUBLIC_API_URL=http://localhost:8000/api
 npm install
 npm run dev
 # opens http://localhost:3000
@@ -89,9 +90,10 @@ docs/            Specs, plans, and architecture docs
 
 - [Architecture](docs/architecture.md) — system overview, data model, execution engine, data flow
 - [API Reference](docs/api.md) — all REST endpoints with request/response shapes
+- [Implementation Plan](docs/plans/2026-03-03-wave-server.md) — wave-by-wave build plan
 - [Spec](docs/spec/2026-03-03-wave-server.md) — original project specification
 - [Deployment Pipeline Spec](docs/spec/2026-03-03-deployment-pipeline.md) — CI/CD and review agent design
-- [Dashboard Spec](docs/pi-wave-dashboard-spec.md) — dashboard architecture (Supabase/Vercel variant)
+- [Dashboard Spec](docs/pi-wave-dashboard-spec.md) — original dashboard spec (Supabase/Vercel design; actual implementation uses local Next.js + Cloudscape polling the REST API)
 
 ## License
 

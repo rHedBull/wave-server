@@ -13,6 +13,7 @@ import FormField from "@cloudscape-design/components/form-field";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import AppShell from "@/components/AppShell";
+import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import { usePolling } from "@/hooks/usePolling";
 import { api, type Project, type Sequence } from "@/lib/api";
 
@@ -51,6 +52,7 @@ export default function ProjectDetailPage({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Sequence | null>(null);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -138,6 +140,28 @@ export default function ProjectDetailPage({
                   return parts.length > 0 ? parts.join(", ") : "—";
                 },
               },
+              {
+                id: "actions",
+                content: (item) => (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(item);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#d91515",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: "inherit",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Delete
+                  </button>
+                ),
+              },
             ],
           }}
           empty={
@@ -183,6 +207,20 @@ export default function ProjectDetailPage({
           />
         </FormField>
       </Modal>
+
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          visible={!!deleteTarget}
+          onDismiss={() => setDeleteTarget(null)}
+          onConfirm={async () => {
+            await api.deleteSequence(deleteTarget.id);
+            setDeleteTarget(null);
+            refetchSeqs();
+          }}
+          resourceName={deleteTarget.name}
+          resourceType="sequence"
+        />
+      )}
     </AppShell>
   );
 }

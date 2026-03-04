@@ -14,3 +14,19 @@ data/
 
 # Environment
 .env
+
+# pi handoff files (temporary)
+HANDOFF-*.md
+
+# pi wip & ideas (personal, not committed by default)
+WIP.md
+IDEAS.md
+
+# Screenshots and generated images
+*.png
+
+# Playwright MCP logs
+.playwright-mcp/
+
+# Desktop entry (local)
+*.desktop

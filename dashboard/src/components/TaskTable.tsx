@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Badge from "@cloudscape-design/components/badge";
 import Box from "@cloudscape-design/components/box";
-import ExpandableSection from "@cloudscape-design/components/expandable-section";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import Header from "@cloudscape-design/components/header";
@@ -16,11 +14,13 @@ interface TaskSummary {
   agent?: string;
   exit_code?: number;
   duration_ms?: number;
+  has_task_log?: boolean;
+  has_output?: boolean;
+  has_transcript?: boolean;
 }
 
 interface TaskTableProps {
   tasks: Record<string, unknown>[];
-  executionId: string;
   onSelectTask?: (taskId: string) => void;
 }
 
@@ -52,7 +52,6 @@ function agentColor(agent: string) {
 
 export default function TaskTable({
   tasks,
-  executionId,
   onSelectTask,
 }: TaskTableProps) {
   const items = tasks as unknown as TaskSummary[];
@@ -115,6 +114,30 @@ export default function TaskTable({
               ? `${(item.duration_ms / 1000).toFixed(1)}s`
               : "—",
           width: 100,
+        },
+        {
+          id: "logs",
+          header: "Logs",
+          cell: (item) => {
+            const icons: string[] = [];
+            if (item.has_task_log) icons.push("📋");
+            if (item.has_output) icons.push("📄");
+            if (item.has_transcript) icons.push("🔍");
+            return icons.length > 0 ? (
+              <span
+                style={{ cursor: "pointer" }}
+                title={[
+                  item.has_task_log && "Task log",
+                  item.has_output && "Output",
+                  item.has_transcript && "Transcript",
+                ].filter(Boolean).join(", ")}
+                onClick={() => onSelectTask?.(item.task_id)}
+              >
+                {icons.join(" ")}
+              </span>
+            ) : "—";
+          },
+          width: 90,
         },
       ]}
       empty={

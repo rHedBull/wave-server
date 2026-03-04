@@ -14,6 +14,7 @@ import AppShell from "@/components/AppShell";
 import BlockerBanner from "@/components/BlockerBanner";
 import LogTail from "@/components/LogTail";
 import TaskDetail from "@/components/TaskDetail";
+import TaskLogSearch from "@/components/TaskLogSearch";
 import TaskTable from "@/components/TaskTable";
 import WaveTimeline from "@/components/WaveTimeline";
 import { useExecution } from "@/hooks/useExecution";
@@ -144,6 +145,11 @@ export default function ExecutionPage({
         {/* Task Table */}
         <TaskTable
           tasks={tasks}
+          onSelectTask={setSelectedTask}
+        />
+
+        {/* Task Log Search */}
+        <TaskLogSearch
           executionId={id}
           onSelectTask={setSelectedTask}
         />
@@ -153,6 +159,7 @@ export default function ExecutionPage({
           <TaskDetail
             executionId={id}
             taskId={selectedTask}
+            task={tasks.find((t: Record<string, unknown>) => t.task_id === selectedTask)}
           />
         )}
 

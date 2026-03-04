@@ -153,6 +153,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  updateSequence: (id: string, data: { name?: string; description?: string }) =>
+    request<Sequence>(`/sequences/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteSequence: (id: string) =>
+    request<void>(`/sequences/${id}`, { method: "DELETE" }),
   getSpec: (id: string) =>
     fetch(`${API_URL}/sequences/${id}/spec`).then((r) =>
       r.ok ? r.text() : null
@@ -198,6 +202,39 @@ export const api = {
     fetch(`${API_URL}/executions/${executionId}/transcript/${taskId}`).then((r) =>
       r.ok ? r.text() : null
     ),
+
+  // Task Log (human-readable)
+  getTaskLog: (executionId: string, taskId: string) =>
+    fetch(`${API_URL}/executions/${executionId}/task-logs/${taskId}`).then((r) =>
+      r.ok ? r.text() : null
+    ),
+
+  listTaskLogs: (executionId: string) =>
+    request<{ task_id: string; filename: string; agent: string }[]>(
+      `/executions/${executionId}/task-logs`
+    ),
+
+  searchTaskLogs: (
+    executionId: string,
+    query: string,
+    agent?: string,
+  ) => {
+    const params = new URLSearchParams({ q: query });
+    if (agent) params.set("agent", agent);
+    return request<{
+      query: string;
+      agent_filter: string | null;
+      total_files: number;
+      total_matches: number;
+      results: {
+        task_id: string;
+        agent: string;
+        filename: string;
+        matches: { line_num: number; snippet: string }[];
+        match_count: number;
+      }[];
+    }>(`/executions/${executionId}/task-logs/search?${params}`);
+  },
 
   // Log
   getLog: (executionId: string) =>

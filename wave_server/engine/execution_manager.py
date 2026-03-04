@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from wave_server.config import settings
 from wave_server.db import async_session
+from wave_server.engine.execution_logger import ExecutionLogger
+from wave_server.engine.log_parser import format_task_log, parse_stream_json
 from wave_server.engine.plan_parser import parse_plan
 from wave_server.engine.dag import validate_plan
 from wave_server.engine.runner import get_runner
@@ -29,7 +31,7 @@ from wave_server.engine.state import (
     state_to_json,
 )
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
-from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave
+from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave, _build_task_prompt
 from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
 from wave_server import storage
 
@@ -47,7 +49,6 @@ def _load_context_files(context_files: list, repo_cwd: str) -> str:
 
     sections: list[str] = []
     for cf in context_files:
-        # Resolve relative paths against repo root
         file_path = Path(cf.path)
         if not file_path.is_absolute():
             file_path = Path(repo_cwd) / file_path
@@ -211,6 +212,23 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             state = create_initial_state("plan.md")
             start_time = time.monotonic()
 
+            # ── Execution Logger ───────────────────────────────
+            exec_logger = ExecutionLogger(
+                execution_id=execution_id,
+                runtime=execution.runtime,
+                total_tasks=total_tasks,
+                max_concurrency=max_concurrency,
+                goal=plan.goal or "",
+                wave_count=len(plan.waves),
+            )
+            exec_logger.execution_started()
+
+            def _flush_log():
+                """Write execution log to disk (called frequently for live tailing)."""
+                storage.write_log(execution_id, exec_logger.render())
+
+            _flush_log()
+
             # Execute waves
             all_passed = True
             completed_count = 0
@@ -224,7 +242,12 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     payload={"wave_index": wave_idx, "wave_name": wave.name},
                 )
 
+                exec_logger.wave_started(wave.name, wave_idx)
+                _flush_log()
+
                 async def on_task_start(phase: str, task: Task):
+                    exec_logger.task_started(phase, task)
+                    _flush_log()
                     await _emit_event(
                         db, execution_id, "task_started",
                         task_id=task.id, phase=phase,
@@ -234,6 +257,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 async def on_task_end(phase: str, task: Task, result: TaskResult):
                     nonlocal completed_count
                     completed_count += 1
+
+                    # Log to execution logger
+                    exec_logger.task_ended(phase, task, result)
+
                     event_type = "task_completed" if result.exit_code == 0 else (
                         "task_skipped" if result.exit_code == -1 else "task_failed"
                     )
@@ -246,10 +273,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                             "duration_ms": result.duration_ms,
                         },
                     )
-                    # Save task output
+                    # Save task output (extracted final result)
                     if result.output:
                         storage.write_output(execution_id, task.id, result.output)
-                    # Save transcript with structured header
+                    # Save raw transcript
                     if result.stdout:
                         header = (
                             f"# Task: {task.id} — {result.title}\n"
@@ -261,6 +288,32 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                             f"---\n"
                         )
                         storage.write_transcript(execution_id, task.id, header + result.stdout)
+                    # Write structured task log (human-readable) + collect cost
+                    try:
+                        prompt = _build_task_prompt(task, spec_content, plan.data_schemas)
+                        parsed = parse_stream_json(result.stdout or "")
+                        task_log = format_task_log(
+                            task_id=task.id,
+                            title=task.title,
+                            agent=task.agent,
+                            phase=phase,
+                            exit_code=result.exit_code,
+                            duration_ms=result.duration_ms,
+                            timed_out=result.timed_out,
+                            prompt=prompt,
+                            parsed=parsed,
+                            extracted_output=result.output,
+                        )
+                        storage.write_task_log(execution_id, task.id, task_log, task.agent)
+                        # Accumulate cost/tokens into execution logger
+                        exec_logger.add_cost(
+                            parsed.total_cost_usd,
+                            parsed.input_tokens,
+                            parsed.output_tokens,
+                        )
+                    except Exception:
+                        pass  # Best effort — don't break execution for log formatting
+                    _flush_log()
                     # Update execution count
                     execution.completed_tasks = completed_count
                     await db.commit()
@@ -271,7 +324,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                         mark_task_failed(state, task.id)
 
                 def on_log(line: str):
-                    storage.append_log(execution_id, line)
+                    exec_logger.log(line)
+                    _flush_log()
 
                 opts = WaveExecutorOptions(
                     wave=wave,
@@ -288,6 +342,9 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 )
 
                 wave_result = await execute_wave(opts)
+
+                exec_logger.wave_ended(wave.name, wave_idx, passed=wave_result.passed)
+                _flush_log()
 
                 # Save waves state
                 execution.waves_state = json.dumps({
@@ -316,6 +373,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             execution.completed_tasks = completed_count
             execution.finished_at = datetime.now(timezone.utc)
             await db.commit()
+
+            # Finalize execution log
+            exec_logger.execution_finished(all_passed=all_passed)
+            _flush_log()
 
             await _emit_event(
                 db, execution_id, "run_completed",

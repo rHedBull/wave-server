@@ -19,7 +19,7 @@ Dashboard (Next.js       |-- GET /api/executions/{id}
                          +-- Execution Engine
                               |-- Plan parser (markdown -> DAG)
                               |-- DAG scheduler (level-by-level)
-                              |-- Wave executor (4-phase loop)
+                              |-- Wave executor (3-phase loop)
                               |-- AgentRunner (spawns claude)
                               +-- Events -> SQLite
                                         |
@@ -32,7 +32,7 @@ Dashboard (Next.js       |-- GET /api/executions/{id}
 
 Three main layers:
 
-1. **REST API** — CRUD for projects, sequences, executions; event streaming; blocker resolution
+1. **REST API** — CRUD for projects, sequences, executions; event streaming; blocker resolution (see [API Reference](api.md) for all endpoints)
 2. **Execution engine** — plan parsing, DAG scheduling, wave execution, subprocess management
 3. **Storage** — SQLite for structured data, local filesystem for markdown artifacts and output blobs
 
@@ -117,12 +117,13 @@ Each task has metadata: agent type, files, dependencies, test files, spec refs, 
 
 ### Wave executor (`engine/wave_executor.py`)
 
-Runs a complete wave in four phases:
+Runs a complete wave in three phases:
 
 1. **Foundation** — shared setup tasks, run via DAG
-2. **Features** — independent feature task sets, run in parallel (sequential within each feature for now)
-3. **Merge** — (planned) merge feature branches back to main
-4. **Integration** — cross-feature verification tasks, run via DAG
+2. **Features** — independent feature task sets, run in parallel via `map_concurrent`; tasks within each feature run sequentially (stop on first failure)
+3. **Integration** — cross-feature verification tasks, run via DAG
+
+A fourth phase (**Merge** — merge feature branches back to main) is planned but not yet wired into the executor. The `git_worktree.py` module implements worktree create/merge/cleanup as infrastructure for this.
 
 If foundation fails, features and integration are skipped. If any feature fails, integration is skipped.
 
@@ -139,7 +140,7 @@ Extensible: implement `AgentRunner` protocol for other runtimes.
 - **`engine/execution_manager.py`** — bridges REST API to engine; launches/cancels background `asyncio.Task`s, emits events to DB
 - **`engine/feature_executor.py`** — runs a single feature's task DAG (used by wave executor)
 - **`engine/enforcement.py`** — generates file access rules for agent sandboxing
-- **`engine/git_worktree.py`** — git worktree create/merge/cleanup for parallel feature isolation
+- **`engine/git_worktree.py`** — git worktree create/merge/cleanup for parallel feature isolation (implemented, not yet integrated into wave executor)
 
 ## Storage
 
