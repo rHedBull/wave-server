@@ -167,6 +167,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             execution.status = "running"
             execution.total_tasks = total_tasks
             execution.started_at = datetime.now(timezone.utc)
+            sequence.status = "executing"
             await db.commit()
 
             await _emit_event(db, execution_id, "run_started")
@@ -381,6 +382,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             execution.status = "completed" if all_passed else "failed"
             execution.completed_tasks = completed_count
             execution.finished_at = datetime.now(timezone.utc)
+            sequence.status = "completed" if all_passed else "failed"
             await db.commit()
 
             # Finalize execution log
@@ -403,6 +405,9 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 if execution:
                     execution.status = "cancelled"
                     execution.finished_at = datetime.now(timezone.utc)
+                    seq = await db2.get(Sequence, sequence_id)
+                    if seq:
+                        seq.status = "cancelled"
                     await db2.commit()
             raise
 
@@ -412,6 +417,9 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 if execution:
                     execution.status = "failed"
                     execution.finished_at = datetime.now(timezone.utc)
+                    seq = await db2.get(Sequence, sequence_id)
+                    if seq:
+                        seq.status = "failed"
                     await db2.commit()
                 await _emit_event(
                     db2, execution_id, "run_completed",

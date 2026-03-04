@@ -78,7 +78,7 @@ export default function ProjectsPage() {
             {
               id: "id",
               header: "ID",
-              content: (item) => <CopyableId id={item.id} label="Project ID" />,
+              content: (item) => <CopyableId id={item.id} label="" />,
             },
             {
               id: "description",

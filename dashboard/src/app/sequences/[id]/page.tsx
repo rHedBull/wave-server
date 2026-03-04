@@ -59,6 +59,7 @@ export default function SequenceDetailPage({
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
   useEffect(() => {
     api.getSpec(id).then(setSpec);
@@ -76,6 +77,13 @@ export default function SequenceDetailPage({
     setEditDesc(sequence.description || "");
     setInitialized(true);
   }
+
+  // Default to "executions" tab if any executions exist (wait for data to load)
+  if (activeTab === null && !execLoading && executions !== null) {
+    setActiveTab(executions.length > 0 ? "executions" : "spec");
+  }
+
+
 
   const handleSave = async () => {
     setSaving(true);
@@ -109,9 +117,10 @@ export default function SequenceDetailPage({
     <AppShell
       breadcrumbs={[
         { text: "Projects", href: "/projects" },
-        ...(project
-          ? [{ text: project.name, href: `/projects/${project.id}` }]
-          : []),
+        {
+          text: project ? project.name : "…",
+          href: project ? `/projects/${project.id}` : "/projects",
+        },
         { text: sequence.name, href: `/sequences/${id}` },
       ]}
     >
@@ -166,6 +175,8 @@ export default function SequenceDetailPage({
         )}
 
         <Tabs
+          activeTabId={activeTab || "spec"}
+          onChange={({ detail }) => setActiveTab(detail.activeTabId)}
           tabs={[
             {
               label: "Spec",
@@ -187,6 +198,21 @@ export default function SequenceDetailPage({
                   loadingText="Loading executions"
                   items={executions || []}
                   columnDefinitions={[
+                    {
+                      id: "id",
+                      header: "Execution",
+                      cell: (item) => (
+                        <Button
+                          variant="inline-link"
+                          onClick={() =>
+                            router.push(`/executions/${item.id}`)
+                          }
+                        >
+                          {item.id.slice(0, 8)}…
+                        </Button>
+                      ),
+                      width: 120,
+                    },
                     {
                       id: "status",
                       header: "Status",
@@ -211,12 +237,6 @@ export default function SequenceDetailPage({
                       width: 120,
                     },
                     {
-                      id: "runtime",
-                      header: "Runtime",
-                      cell: (item) => item.runtime,
-                      width: 100,
-                    },
-                    {
                       id: "started",
                       header: "Started",
                       cell: (item) =>
@@ -225,19 +245,31 @@ export default function SequenceDetailPage({
                           : "—",
                     },
                     {
-                      id: "actions",
-                      header: "Actions",
-                      cell: (item) => (
-                        <Button
-                          variant="inline-link"
-                          onClick={() =>
-                            router.push(`/executions/${item.id}`)
-                          }
-                        >
-                          View
-                        </Button>
-                      ),
-                      width: 80,
+                      id: "finished",
+                      header: "Finished",
+                      cell: (item) =>
+                        item.finished_at
+                          ? new Date(item.finished_at).toLocaleString()
+                          : "—",
+                    },
+                    {
+                      id: "duration",
+                      header: "Duration",
+                      cell: (item) => {
+                        if (!item.started_at) return "—";
+                        const start = new Date(item.started_at).getTime();
+                        const end = item.finished_at
+                          ? new Date(item.finished_at).getTime()
+                          : Date.now();
+                        const secs = Math.floor((end - start) / 1000);
+                        if (secs < 60) return `${secs}s`;
+                        const mins = Math.floor(secs / 60);
+                        const rem = secs % 60;
+                        if (mins < 60) return `${mins}m ${rem}s`;
+                        const hrs = Math.floor(mins / 60);
+                        return `${hrs}h ${mins % 60}m`;
+                      },
+                      width: 100,
                     },
                   ]}
                   empty={

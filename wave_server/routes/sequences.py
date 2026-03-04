@@ -11,6 +11,27 @@ from wave_server import storage
 router = APIRouter()
 
 
+async def _enrich_sequence_status(db: AsyncSession, seq: Sequence) -> Sequence:
+    """Derive effective status from latest execution when DB still says 'drafting'.
+
+    Modifies `seq.status` in-place for the response but expunges the object
+    so the change is NOT persisted back to the database.
+    """
+    if seq.status != "drafting":
+        return seq
+    result = await db.execute(
+        select(Execution.status)
+        .where(Execution.sequence_id == seq.id)
+        .order_by(Execution.created_at.desc())
+        .limit(1)
+    )
+    latest_status = result.scalar_one_or_none()
+    if latest_status:
+        db.expunge(seq)
+        seq.status = "executing" if latest_status == "running" else latest_status
+    return seq
+
+
 @router.post(
     "/projects/{project_id}/sequences",
     response_model=SequenceResponse,
@@ -40,7 +61,10 @@ async def list_sequences(project_id: str, db: AsyncSession = Depends(get_db)):
         .where(Sequence.project_id == project_id)
         .order_by(Sequence.created_at.desc())
     )
-    return result.scalars().all()
+    seqs = result.scalars().all()
+    for s in seqs:
+        await _enrich_sequence_status(db, s)
+    return seqs
 
 
 @router.get("/sequences/{sequence_id}", response_model=SequenceResponse)
@@ -48,6 +72,7 @@ async def get_sequence(sequence_id: str, db: AsyncSession = Depends(get_db)):
     seq = await db.get(Sequence, sequence_id)
     if not seq:
         raise HTTPException(404, "Sequence not found")
+    await _enrich_sequence_status(db, seq)
     return seq
 
 

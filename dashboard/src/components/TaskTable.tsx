@@ -62,16 +62,6 @@ export default function TaskTable({
       items={items}
       columnDefinitions={[
         {
-          id: "status",
-          header: "Status",
-          cell: (item) => (
-            <StatusIndicator type={statusType(item.status)}>
-              {item.status}
-            </StatusIndicator>
-          ),
-          width: 120,
-        },
-        {
           id: "task_id",
           header: "Task ID",
           cell: (item) => (
@@ -88,6 +78,16 @@ export default function TaskTable({
           id: "title",
           header: "Title",
           cell: (item) => item.title || "—",
+        },
+        {
+          id: "status",
+          header: "Status",
+          cell: (item) => (
+            <StatusIndicator type={statusType(item.status)}>
+              {item.status}
+            </StatusIndicator>
+          ),
+          width: 120,
         },
         {
           id: "agent",

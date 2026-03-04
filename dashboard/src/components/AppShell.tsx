@@ -15,19 +15,23 @@ interface AppShellProps {
   children: React.ReactNode;
   breadcrumbs?: BreadcrumbGroupProps.Item[];
   activeHref?: string;
+  splitPanel?: React.ReactNode;
+  splitPanelOpen?: boolean;
+  onSplitPanelToggle?: (open: boolean) => void;
 }
 
 export default function AppShell({
   children,
   breadcrumbs = [],
   activeHref,
+  splitPanel,
+  splitPanelOpen,
+  onSplitPanelToggle,
 }: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [projects, setProjects] = useState<Project[]>([]);
   const [version, setVersion] = useState<string | null>(null);
-  const [navOpen, setNavOpen] = useState(true);
-
   useEffect(() => {
     api.listProjects().then(setProjects).catch(() => {});
     api.getHealth().then((h) => setVersion(h.version)).catch(() => {});
@@ -55,14 +59,14 @@ export default function AppShell({
   ];
 
   const allBreadcrumbs: BreadcrumbGroupProps.Item[] = [
-    { text: "Wave Server", href: "/" },
+    { text: "Home", href: "/" },
     ...breadcrumbs,
   ];
 
   return (
     <AppLayout
-      navigationOpen={navOpen}
-      onNavigationChange={({ detail }) => setNavOpen(detail.open)}
+      navigationOpen={true}
+      onNavigationChange={() => {}}
       navigation={
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ flex: 1 }}>
@@ -99,6 +103,11 @@ export default function AppShell({
         />
       }
       content={children}
+      splitPanel={splitPanel}
+      splitPanelOpen={splitPanelOpen ?? false}
+      onSplitPanelToggle={({ detail }) => onSplitPanelToggle?.(detail.open)}
+      splitPanelPreferences={{ position: "side" }}
+      onSplitPanelPreferencesChange={() => {}}
       toolsHide
     />
   );
