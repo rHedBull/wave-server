@@ -145,7 +145,6 @@ export default function ExecutionPage({
         {/* Task Table */}
         <TaskTable
           tasks={tasks}
-          executionId={id}
           onSelectTask={setSelectedTask}
         />
 

@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Badge from "@cloudscape-design/components/badge";
 import Box from "@cloudscape-design/components/box";
-import ExpandableSection from "@cloudscape-design/components/expandable-section";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import Header from "@cloudscape-design/components/header";
@@ -23,7 +21,6 @@ interface TaskSummary {
 
 interface TaskTableProps {
   tasks: Record<string, unknown>[];
-  executionId: string;
   onSelectTask?: (taskId: string) => void;
 }
 
@@ -55,7 +52,6 @@ function agentColor(agent: string) {
 
 export default function TaskTable({
   tasks,
-  executionId,
   onSelectTask,
 }: TaskTableProps) {
   const items = tasks as unknown as TaskSummary[];

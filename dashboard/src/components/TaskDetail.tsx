@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@cloudscape-design/components/box";
 import Container from "@cloudscape-design/components/container";
 import Header from "@cloudscape-design/components/header";
@@ -12,20 +12,30 @@ interface TaskDetailProps {
   executionId: string;
   taskId: string;
   task?: Record<string, unknown>;
-  onClose?: () => void;
 }
+
+type TaskData = {
+  output: string | null;
+  transcript: string | null;
+  taskLog: string | null;
+};
 
 export default function TaskDetail({
   executionId,
   taskId,
   task,
-  onClose,
 }: TaskDetailProps) {
-  const [data, setData] = useState<{
-    output: string | null;
-    transcript: string | null;
-    taskLog: string | null;
-  } | null>(null);
+  // Reset key forces remount when task changes, avoiding sync setState in effect
+  const fetchKey = useMemo(() => `${executionId}:${taskId}`, [executionId, taskId]);
+  return <TaskDetailInner key={fetchKey} executionId={executionId} taskId={taskId} task={task} />;
+}
+
+function TaskDetailInner({
+  executionId,
+  taskId,
+  task,
+}: TaskDetailProps) {
+  const [data, setData] = useState<TaskData | null>(null);
   const [activeTab, setActiveTab] = useState("tasklog");
 
   const loading = data === null;
@@ -35,7 +45,6 @@ export default function TaskDetail({
 
   useEffect(() => {
     let cancelled = false;
-    setData(null);
     const load = async () => {
       const [out, trans, log] = await Promise.all([
         api.getOutput(executionId, taskId),
@@ -50,7 +59,7 @@ export default function TaskDetail({
         else if (trans) setActiveTab("transcript");
       }
     };
-    load();
+    void load();
     return () => {
       cancelled = true;
     };

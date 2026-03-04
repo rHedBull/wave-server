@@ -120,8 +120,8 @@ export default function TaskLogSearch({
   }, [executionId, query, agent]);
 
   const handleKeyDown = useCallback(
-    (e: CustomEvent<{ keyCode: number; key: string }>) => {
-      if (e.detail.key === "Enter") {
+    ({ detail }: { detail: { keyCode: number; key: string } }) => {
+      if (detail.key === "Enter") {
         handleSearch();
       }
     },
@@ -139,7 +139,7 @@ export default function TaskLogSearch({
               <Input
                 value={query}
                 onChange={({ detail }) => setQuery(detail.value)}
-                onKeyDown={handleKeyDown as any}
+                onKeyDown={handleKeyDown}
                 placeholder="Search across all task logs... (file path, error, function name)"
                 type="search"
               />
