@@ -230,6 +230,31 @@ export default function SequenceDetailPage({
                       width: 100,
                     },
                     {
+                      id: "branch",
+                      header: "Branch",
+                      cell: (item) => (
+                        <SpaceBetween direction="horizontal" size="xxs">
+                          {item.work_branch ? (
+                            <code style={{ fontSize: "0.85em" }}>{item.work_branch}</code>
+                          ) : (
+                            "—"
+                          )}
+                          {item.pr_url && (
+                            <a
+                              href={item.pr_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open PR"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              PR
+                            </a>
+                          )}
+                        </SpaceBetween>
+                      ),
+                      width: 200,
+                    },
+                    {
                       id: "progress",
                       header: "Progress",
                       cell: (item) =>
