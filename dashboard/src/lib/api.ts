@@ -107,6 +107,34 @@ export interface HealthResponse {
   active_executions: number;
 }
 
+export interface PlanGraphTask {
+  id: string;
+  title: string;
+  agent: string;
+  files: string[];
+  depends: string[];
+}
+
+export interface PlanGraphFeature {
+  name: string;
+  files: string[];
+  tasks: PlanGraphTask[];
+}
+
+export interface PlanGraphWave {
+  index: number;
+  name: string;
+  description: string;
+  foundation: PlanGraphTask[];
+  features: PlanGraphFeature[];
+  integration: PlanGraphTask[];
+}
+
+export interface PlanGraph {
+  goal: string;
+  waves: PlanGraphWave[];
+}
+
 // --- Projects ---
 
 export const api = {
@@ -169,6 +197,10 @@ export const api = {
     fetch(`${API_URL}/sequences/${id}/plan`).then((r) =>
       r.ok ? r.text() : null
     ),
+  getPlanGraph: (id: string) =>
+    fetch(`${API_URL}/sequences/${id}/plan-graph`).then((r) =>
+      r.ok ? r.json() : null
+    ) as Promise<PlanGraph | null>,
 
   // Executions
   listExecutions: (sequenceId: string) =>
