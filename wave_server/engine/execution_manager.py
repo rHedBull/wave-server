@@ -239,20 +239,12 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                         )
                         return
                 else:
-                    # Ensure we're on the source branch to get its HEAD
-                    if original_branch != source_branch:
-                        ok, err = await checkout_branch(repo_cwd, source_branch)
-                        if not ok:
-                            execution.status = "failed"
-                            await db.commit()
-                            await _emit_event(
-                                db, execution_id, "run_completed",
-                                payload={"passed": False, "error": f"Cannot checkout source branch: {err}"},
-                            )
-                            return
                     execution.source_sha = await get_current_sha(repo_cwd)
 
                 # Create work branch: wave/exec-{short_id}
+                # With worktree isolation, we create the branch ref without
+                # checking it out — the main directory stays untouched.
+                # Feature worktrees will branch from this work branch.
                 short_id = execution_id[:8]
                 work_branch = f"wave/exec-{short_id}"
                 execution.work_branch = work_branch
@@ -260,7 +252,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 start_point = execution.source_sha or source_branch
 
                 if await branch_exists(repo_cwd, work_branch):
-                    # Resume: reuse existing work branch (e.g. from /continue)
+                    # Resume: reuse existing work branch
                     ok, err = await checkout_branch(repo_cwd, work_branch)
                 else:
                     ok, err = await create_work_branch(repo_cwd, work_branch, start_point)
@@ -444,6 +436,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     cwd=repo_cwd,
                     env=project_env,
                     max_concurrency=max_concurrency,
+                    repo_root=repo_cwd if use_git else None,
+                    use_worktrees=use_git,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,
                     on_log=on_log,
