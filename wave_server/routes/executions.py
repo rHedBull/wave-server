@@ -177,6 +177,7 @@ async def list_tasks(execution_id: str, db: AsyncSession = Depends(get_db)):
         tid = t["task_id"]
         t["has_output"] = storage.has_output(execution_id, tid)
         t["has_transcript"] = storage.has_transcript(execution_id, tid)
+        t["has_task_log"] = storage.has_task_log(execution_id, tid)
     return list(tasks.values())
 
 
@@ -214,6 +215,54 @@ async def get_task_transcript(
     if content is None:
         raise HTTPException(404, "Transcript not found")
     return PlainTextResponse(content)
+
+
+# --- Task Logs (human-readable) ---
+
+
+@router.get("/executions/{execution_id}/task-logs")
+async def list_task_logs(
+    execution_id: str, db: AsyncSession = Depends(get_db)
+):
+    exc = await db.get(Execution, execution_id)
+    if not exc:
+        raise HTTPException(404, "Execution not found")
+    return storage.list_task_logs(execution_id)
+
+
+@router.get("/executions/{execution_id}/task-logs/search")
+async def search_task_logs(
+    execution_id: str,
+    q: str = Query(..., min_length=1, description="Search query"),
+    agent: str = Query("", description="Filter by agent: worker, test-writer, wave-verifier"),
+    db: AsyncSession = Depends(get_db),
+):
+    exc = await db.get(Execution, execution_id)
+    if not exc:
+        raise HTTPException(404, "Execution not found")
+    results = storage.search_task_logs(execution_id, q, agent=agent)
+    return {
+        "query": q,
+        "agent_filter": agent or None,
+        "total_files": len(results),
+        "total_matches": sum(r["match_count"] for r in results),
+        "results": results,
+    }
+
+
+@router.get("/executions/{execution_id}/task-logs/{task_id}")
+async def get_task_log(
+    execution_id: str, task_id: str, db: AsyncSession = Depends(get_db)
+):
+    exc = await db.get(Execution, execution_id)
+    if not exc:
+        raise HTTPException(404, "Execution not found")
+    from fastapi.responses import PlainTextResponse
+
+    content = storage.read_task_log(execution_id, task_id)
+    if content is None:
+        raise HTTPException(404, "Task log not found")
+    return PlainTextResponse(content, media_type="text/markdown")
 
 
 # --- Log ---
