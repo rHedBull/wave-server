@@ -197,6 +197,25 @@ wave_server/
     +-- git_worktree.py  Git worktree operations
 ```
 
+## Testing
+
+Three layers:
+
+**Unit/integration tests** (`pytest`) — 417 tests, ~14s, run in CI. Cover API routes, plan parsing, DAG scheduling, wave execution, storage, and log formatting. Use mock runners and in-memory SQLite.
+
+- `test_e2e_execution.py` — full API workflow with mock runner (14 tests): project → repo → sequence → plan → execute → verify events/artifacts/status. Covers happy path, failures, cancel/continue, context files, concurrent executions.
+
+**Live evals** (`WAVE_LIVE_TEST=1 pytest tests/test_live_execution.py -v -s`) — manually triggered, spawn real Claude Code subprocesses. Validate the full system including subprocess spawning, stream-json parsing, and actual code quality.
+
+| Eval | Tasks | What it stresses |
+|---|---|---|
+| `test_simple` | 2 | Code generation, test writing |
+| `test_multi_agent` | 3 | All 3 agent types, foundation → features → integration phases |
+| `test_capability` | 5 | Bash, git, CLI execution, data processing, test-driven bug diagnosis, parallel features |
+| `test_process` | 2 | Background process lifecycle: start server, test endpoints, kill, verify stopped |
+
+Each eval pre-plants fixture files in a temp git repo, runs execution through the full API, then verifies both the server artifacts (events, logs, outputs) and the actual results (files exist, tests pass, server stopped, etc.).
+
 ## Cloud migration path (v2)
 
 | Component | Local (v1) | Cloud (v2) |

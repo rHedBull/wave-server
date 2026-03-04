@@ -27,6 +27,30 @@ Run tests:
 pytest
 ```
 
+### Live evals
+
+Manually-triggered evaluations that run real Claude Code subprocesses against the server. Not part of CI — require `claude` CLI and cost money per run.
+
+```sh
+# All evals (~5 min, ~$4)
+WAVE_LIVE_TEST=1 pytest tests/test_live_execution.py -v -s
+
+# Individual evals
+WAVE_LIVE_TEST=1 pytest tests/test_live_execution.py -v -s -k test_simple
+WAVE_LIVE_TEST=1 pytest tests/test_live_execution.py -v -s -k test_multi_agent
+WAVE_LIVE_TEST=1 pytest tests/test_live_execution.py -v -s -k test_capability
+WAVE_LIVE_TEST=1 pytest tests/test_live_execution.py -v -s -k test_process
+```
+
+| Eval | Tasks | Time | Cost | What it tests |
+|---|---|---|---|---|
+| `test_simple` | 2 | ~40s | ~$0.60 | Code generation, test writing, file verification |
+| `test_multi_agent` | 3 | ~65s | ~$0.90 | All 3 agent types (worker/test-writer/verifier), wave phases |
+| `test_capability` | 5 | ~2m | ~$1.75 | Bash, git, CLI execution, data processing, test-driven bugfix, parallel features |
+| `test_process` | 2 | ~1m | ~$0.65 | Background process spawning, HTTP endpoint testing, process kill, port cleanup |
+
+See [`tests/test_live_execution.py`](tests/test_live_execution.py) for details. Each eval pre-plants fixture files, runs execution through the full API, then verifies both the execution artifacts (events, logs, outputs) and the actual results (files created, tests passing, server stopped, etc.).
+
 Start the dashboard (separate terminal):
 
 ```sh
