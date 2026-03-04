@@ -270,27 +270,33 @@ async def test_update_sequence_partial_description_only(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_add_repository(client: AsyncClient):
+async def test_add_repository(client: AsyncClient, tmp_path):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
     r = await client.post(
         f"/api/v1/projects/{pid}/repositories",
-        json={"path": "/home/user/repo", "label": "main"},
+        json={"path": str(repo_dir), "label": "main"},
     )
     assert r.status_code == 201
-    assert r.json()["path"] == "/home/user/repo"
+    assert r.json()["path"] == str(repo_dir)
     assert r.json()["label"] == "main"
 
 
 @pytest.mark.asyncio
-async def test_list_repositories(client: AsyncClient):
+async def test_list_repositories(client: AsyncClient, tmp_path):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
+    d1 = tmp_path / "r1"
+    d1.mkdir()
+    d2 = tmp_path / "r2"
+    d2.mkdir()
     await client.post(
-        f"/api/v1/projects/{pid}/repositories", json={"path": "/repo1"}
+        f"/api/v1/projects/{pid}/repositories", json={"path": str(d1)}
     )
     await client.post(
-        f"/api/v1/projects/{pid}/repositories", json={"path": "/repo2"}
+        f"/api/v1/projects/{pid}/repositories", json={"path": str(d2)}
     )
     r = await client.get(f"/api/v1/projects/{pid}/repositories")
     assert r.status_code == 200
@@ -298,11 +304,13 @@ async def test_list_repositories(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_delete_repository(client: AsyncClient):
+async def test_delete_repository(client: AsyncClient, tmp_path):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
+    d = tmp_path / "repo"
+    d.mkdir()
     repo = await client.post(
-        f"/api/v1/projects/{pid}/repositories", json={"path": "/repo"}
+        f"/api/v1/projects/{pid}/repositories", json={"path": str(d)}
     )
     rid = repo.json()["id"]
     r = await client.delete(f"/api/v1/projects/{pid}/repositories/{rid}")

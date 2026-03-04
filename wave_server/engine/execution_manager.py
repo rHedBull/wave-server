@@ -32,11 +32,44 @@ from wave_server.engine.state import (
 )
 from wave_server.engine.types import ProgressUpdate, Task, TaskResult
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave, _build_task_prompt
-from wave_server.models import Event, Execution, ProjectRepository, Sequence
+from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
 from wave_server import storage
 
 # Track active execution tasks
 _active_tasks: dict[str, asyncio.Task] = {}
+
+# Max size per context file to avoid prompt bloat (32KB)
+_MAX_CONTEXT_FILE_SIZE = 32 * 1024
+
+
+def _load_context_files(context_files: list, repo_cwd: str) -> str:
+    """Load project context files and return combined content for prompt injection."""
+    if not context_files:
+        return ""
+
+    sections: list[str] = []
+    for cf in context_files:
+        file_path = Path(cf.path)
+        if not file_path.is_absolute():
+            file_path = Path(repo_cwd) / file_path
+        file_path = file_path.resolve()
+
+        if not file_path.is_file():
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+            if len(content) > _MAX_CONTEXT_FILE_SIZE:
+                content = content[:_MAX_CONTEXT_FILE_SIZE] + "\n... (truncated)"
+            label = cf.description or cf.path
+            sections.append(f"### {label}\n```\n{content}\n```")
+        except OSError:
+            continue
+
+    if not sections:
+        return ""
+
+    return "## Project Context\n\n" + "\n\n".join(sections)
 
 
 def _get_git_sha(cwd: str) -> str | None:
@@ -140,7 +173,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             max_concurrency = config.get("concurrency") or settings.default_concurrency
             spec_content = storage.read_spec(sequence_id) or ""
 
-            # Resolve repo path for git SHA capture
+            # Resolve repo path for execution cwd
             repo_result = await db.execute(
                 select(ProjectRepository)
                 .where(ProjectRepository.project_id == sequence.project_id)
@@ -149,10 +182,31 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             repo = repo_result.scalar_one_or_none()
             repo_cwd = repo.path if repo and Path(repo.path).is_dir() else None
 
-            # Capture git SHA before execution
-            if repo_cwd:
-                execution.git_sha_before = _get_git_sha(repo_cwd)
+            if not repo_cwd:
+                execution.status = "failed"
                 await db.commit()
+                await _emit_event(
+                    db, execution_id, "run_completed",
+                    payload={
+                        "passed": False,
+                        "error": "No repository configured for this project. "
+                                 "Register one via POST /api/v1/projects/{project_id}/repositories",
+                    },
+                )
+                return
+
+            # Load project context files
+            ctx_result = await db.execute(
+                select(ProjectContextFile)
+                .where(ProjectContextFile.project_id == sequence.project_id)
+                .order_by(ProjectContextFile.created_at)
+            )
+            context_files = ctx_result.scalars().all()
+            project_context = _load_context_files(context_files, repo_cwd)
+
+            # Capture git SHA before execution
+            execution.git_sha_before = _get_git_sha(repo_cwd)
+            await db.commit()
 
             # Load state for resume
             state = create_initial_state("plan.md")
@@ -191,17 +245,16 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 exec_logger.wave_started(wave.name, wave_idx)
                 _flush_log()
 
-                def on_task_start(phase: str, task: Task):
+                async def on_task_start(phase: str, task: Task):
                     exec_logger.task_started(phase, task)
                     _flush_log()
-                    # Schedule coroutine to emit event
-                    asyncio.create_task(_emit_event(
+                    await _emit_event(
                         db, execution_id, "task_started",
                         task_id=task.id, phase=phase,
                         payload={"task_id": task.id, "title": task.title, "agent": task.agent, "phase": phase},
-                    ))
+                    )
 
-                def on_task_end(phase: str, task: Task, result: TaskResult):
+                async def on_task_end(phase: str, task: Task, result: TaskResult):
                     nonlocal completed_count
                     completed_count += 1
 
@@ -211,7 +264,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     event_type = "task_completed" if result.exit_code == 0 else (
                         "task_skipped" if result.exit_code == -1 else "task_failed"
                     )
-                    asyncio.create_task(_emit_event(
+                    await _emit_event(
                         db, execution_id, event_type,
                         task_id=task.id, phase=phase,
                         payload={
@@ -219,7 +272,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                             "exit_code": result.exit_code,
                             "duration_ms": result.duration_ms,
                         },
-                    ))
+                    )
                     # Save task output (extracted final result)
                     if result.output:
                         storage.write_output(execution_id, task.id, result.output)
@@ -262,7 +315,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                         pass  # Best effort — don't break execution for log formatting
                     _flush_log()
                     # Update execution count
-                    asyncio.create_task(_update_completed_count(execution_id, completed_count))
+                    execution.completed_tasks = completed_count
+                    await db.commit()
                     # Update state
                     if result.exit_code == 0:
                         mark_task_done(state, task.id)
@@ -279,7 +333,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     runner=runner,
                     spec_content=spec_content,
                     data_schemas=plan.data_schemas,
-                    cwd=".",
+                    project_context=project_context,
+                    cwd=repo_cwd,
                     max_concurrency=max_concurrency,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,
@@ -355,9 +410,4 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 )
 
 
-async def _update_completed_count(execution_id: str, count: int) -> None:
-    async with async_session() as db:
-        execution = await db.get(Execution, execution_id)
-        if execution:
-            execution.completed_tasks = count
-            await db.commit()
+

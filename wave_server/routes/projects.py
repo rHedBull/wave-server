@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -145,8 +146,12 @@ async def add_repository(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+    # Validate path exists and is a directory
+    repo_path = Path(body.path).expanduser().resolve()
+    if not repo_path.is_dir():
+        raise HTTPException(400, f"Path does not exist or is not a directory: {repo_path}")
     repo = ProjectRepository(
-        project_id=project_id, path=body.path, label=body.label
+        project_id=project_id, path=str(repo_path), label=body.label
     )
     db.add(repo)
     await db.commit()

@@ -12,6 +12,7 @@ import FormField from "@cloudscape-design/components/form-field";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import AppShell from "@/components/AppShell";
+import CopyableId from "@/components/CopyableId";
 import { usePolling } from "@/hooks/usePolling";
 import { api, type Project } from "@/lib/api";
 
@@ -74,6 +75,11 @@ export default function ProjectsPage() {
             </Box>
           ),
           sections: [
+            {
+              id: "id",
+              header: "ID",
+              content: (item) => <CopyableId id={item.id} label="Project ID" />,
+            },
             {
               id: "description",
               header: "Description",
