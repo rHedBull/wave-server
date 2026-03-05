@@ -1,11 +1,16 @@
+import shutil
+import socket
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wave_server.db import get_db
-from wave_server.models import Command, Event, Execution, Sequence
+from wave_server.engine.dag import validate_plan
+from wave_server.engine.plan_parser import parse_plan
+from wave_server.models import Command, Event, Execution, ProjectRepository, Sequence
 from wave_server.schemas import (
     CommandResolve,
     CommandResponse,
@@ -16,6 +21,63 @@ from wave_server.schemas import (
 from wave_server import storage
 
 router = APIRouter()
+
+
+def _check_network() -> bool:
+    """Return True if api.anthropic.com:443 is reachable within 5 s."""
+    try:
+        with socket.create_connection(("api.anthropic.com", 443), timeout=5):
+            return True
+    except OSError:
+        return False
+
+
+async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> None:
+    """Raise HTTP 422 if the execution cannot proceed due to missing config."""
+    # Plan must exist and be valid
+    plan_content = storage.read_plan(sequence_id)
+    if not plan_content:
+        raise HTTPException(422, "No plan found for this sequence. Upload one first.")
+    plan = parse_plan(plan_content)
+    valid, errors = validate_plan(plan)
+    if not valid:
+        raise HTTPException(422, f"Plan validation failed: {'; '.join(errors)}")
+
+    # Repository must be configured and still exist on disk
+    repo_result = await db.execute(
+        select(ProjectRepository)
+        .where(ProjectRepository.project_id == project_id)
+        .limit(1)
+    )
+    repo = repo_result.scalar_one_or_none()
+    if not repo:
+        raise HTTPException(
+            422,
+            "No repository configured for this project. "
+            "Go to Project Settings and add a repository path first.",
+        )
+    if not Path(repo.path).is_dir():
+        raise HTTPException(
+            422,
+            f"Repository path does not exist or is not accessible: {repo.path}",
+        )
+
+    # Claude CLI must be installed
+    if not shutil.which("claude"):
+        raise HTTPException(
+            422,
+            "The 'claude' CLI is not installed or not in PATH. "
+            "Install it from https://docs.anthropic.com/en/docs/claude-code",
+        )
+
+    # Network must be reachable (runs in threadpool to avoid blocking the event loop)
+    import asyncio
+    reachable = await asyncio.get_event_loop().run_in_executor(None, _check_network)
+    if not reachable:
+        raise HTTPException(
+            422,
+            "Cannot reach api.anthropic.com — check your internet connection or firewall.",
+        )
 
 
 @router.post(
@@ -29,6 +91,7 @@ async def create_execution(
     seq = await db.get(Sequence, sequence_id)
     if not seq:
         raise HTTPException(404, "Sequence not found")
+    await _preflight(sequence_id, seq.project_id, db)
     import json
 
     config = json.dumps(
@@ -105,6 +168,9 @@ async def continue_execution(
         raise HTTPException(404, "Execution not found")
     if exc.status not in ("failed", "cancelled"):
         raise HTTPException(400, "Execution is not in a resumable state")
+    seq = await db.get(Sequence, exc.sequence_id)
+    if seq:
+        await _preflight(exc.sequence_id, seq.project_id, db)
     new_exec = Execution(
         sequence_id=exc.sequence_id,
         trigger="continuation",

@@ -13,6 +13,7 @@ import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import Tabs from "@cloudscape-design/components/tabs";
 import Textarea from "@cloudscape-design/components/textarea";
+import Flashbar from "@cloudscape-design/components/flashbar";
 import AppShell from "@/components/AppShell";
 import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import MarkdownView from "@/components/MarkdownView";
@@ -63,6 +64,7 @@ export default function SequenceDetailPage({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getSpec(id).then(setSpec);
@@ -111,9 +113,16 @@ export default function SequenceDetailPage({
   };
 
   const handleCreateExecution = async () => {
-    const exec = await api.createExecution(id);
-    refetchExecs();
-    router.push(`/executions/${exec.id}`);
+    setRunError(null);
+    try {
+      const exec = await api.createExecution(id);
+      refetchExecs();
+      router.push(`/executions/${exec.id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Strip the leading HTTP status code if present (e.g. "422: ...")
+      setRunError(message.replace(/^\d+:\s*/, "").replace(/^.*?"detail"\s*:\s*"([^"]+)".*$/, "$1"));
+    }
   };
 
   if (!sequence) return null;
@@ -150,6 +159,21 @@ export default function SequenceDetailPage({
             </StatusIndicator>
           </Box>
         </Header>
+
+        {runError && (
+          <Flashbar
+            items={[
+              {
+                type: "error",
+                dismissible: true,
+                onDismiss: () => setRunError(null),
+                header: "Cannot start execution",
+                content: runError,
+                id: "run-error",
+              },
+            ]}
+          />
+        )}
 
         {editing && (
           <Container header={<Header variant="h2">Edit Sequence</Header>}>
@@ -297,9 +321,11 @@ export default function SequenceDetailPage({
                       header: "Duration",
                       cell: (item) => {
                         if (!item.started_at) return "—";
-                        const start = new Date(item.started_at).getTime();
+                        const terminal = ["completed", "failed", "cancelled"].includes(item.status as string);
+                        if (terminal && !item.finished_at) return "—";
+                        const start = new Date(item.started_at as string).getTime();
                         const end = item.finished_at
-                          ? new Date(item.finished_at).getTime()
+                          ? new Date(item.finished_at as string).getTime()
                           : Date.now();
                         const secs = Math.floor((end - start) / 1000);
                         if (secs < 60) return `${secs}s`;

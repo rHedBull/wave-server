@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -168,13 +170,8 @@ async def test_delete_sequence_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_delete_sequence_cascades(client: AsyncClient):
-    proj = await client.post("/api/v1/projects", json={"name": "proj"})
-    pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
-    sid = seq.json()["id"]
+async def test_delete_sequence_cascades(client: AsyncClient, ready_sequence):
+    sid = ready_sequence["sequence_id"]
     exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
     eid = exc.json()["id"]
     r = await client.delete(f"/api/v1/sequences/{sid}")
@@ -189,14 +186,9 @@ async def test_delete_sequence_cascades(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_delete_sequence_cascades_events_and_commands(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, ready_sequence
 ):
-    proj = await client.post("/api/v1/projects", json={"name": "proj"})
-    pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
-    sid = seq.json()["id"]
+    sid = ready_sequence["sequence_id"]
     exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
     eid = exc.json()["id"]
     # Insert events and commands directly via DB
@@ -437,13 +429,8 @@ async def test_plan_upload_and_get(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_execution(client: AsyncClient):
-    proj = await client.post("/api/v1/projects", json={"name": "proj"})
-    pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
-    sid = seq.json()["id"]
+async def test_create_execution(client: AsyncClient, ready_sequence):
+    sid = ready_sequence["sequence_id"]
     r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
     assert r.status_code == 201
     assert r.json()["status"] == "queued"
@@ -451,13 +438,8 @@ async def test_create_execution(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_cancel_execution(client: AsyncClient):
-    proj = await client.post("/api/v1/projects", json={"name": "proj"})
-    pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
-    sid = seq.json()["id"]
+async def test_cancel_execution(client: AsyncClient, ready_sequence):
+    sid = ready_sequence["sequence_id"]
     exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
     eid = exc.json()["id"]
     r = await client.post(f"/api/v1/executions/{eid}/cancel")

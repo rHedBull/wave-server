@@ -1,5 +1,11 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
+from unittest.mock import patch
+
+# Ensure all tests (including live ones) use sonnet — fast and cheap.
+os.environ.setdefault("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
 import pytest
 import pytest_asyncio
@@ -8,6 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from wave_server.db import Base, get_db
 from wave_server.main import app
+
+# Minimal valid plan used by tests that need a launchable sequence
+MINIMAL_PLAN = """\
+# Plan
+
+## Wave 1: Setup
+
+### Task 1a: Do something
+- **Agent**: worker
+- **Files**: `src/index.ts`
+- **Depends**: (none)
+- **Description**: Does something useful.
+"""
 
 
 @pytest.fixture(scope="session")
@@ -40,3 +59,43 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def mock_network():
+    """Prevent real network calls in all tests. Override per-test to simulate failure."""
+    with patch("wave_server.routes.executions._check_network", return_value=True):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def mock_claude_cli():
+    """Pretend claude is installed in all tests (CI has no claude binary).
+    Override per-test to simulate missing CLI."""
+    with patch("wave_server.routes.executions.shutil.which", return_value="/usr/bin/claude"):
+        yield
+
+
+@pytest_asyncio.fixture
+async def ready_sequence(client: AsyncClient, tmp_path: Path):
+    """Project + sequence + valid plan + repo directory — ready to launch an execution."""
+    proj = await client.post("/api/v1/projects", json={"name": "test-proj"})
+    pid = proj.json()["id"]
+
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "test-seq"})
+    sid = seq.json()["id"]
+
+    await client.post(
+        f"/api/v1/sequences/{sid}/plan",
+        content=MINIMAL_PLAN,
+        headers={"content-type": "text/plain"},
+    )
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    await client.post(
+        f"/api/v1/projects/{pid}/repositories",
+        json={"path": str(repo_dir)},
+    )
+
+    return {"project_id": pid, "sequence_id": sid, "repo_dir": repo_dir}

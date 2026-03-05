@@ -542,58 +542,39 @@ class TestE2EFailureHandling:
 
     @pytest.mark.asyncio
     async def test_no_plan_fails_fast(self, e2e_client: AsyncClient, repo_dir: Path):
-        """Execution with no uploaded plan fails immediately."""
+        """No plan → preflight rejects with 422 before creating an execution record."""
         client = e2e_client
-        mock_runner = E2EMockRunner()
 
         project_id = await _create_project(client)
         await _register_repo(client, project_id, repo_dir)
         sequence_id = await _create_sequence(client, project_id)
         # Don't upload a plan
 
-        with patch(
-            "wave_server.engine.execution_manager.get_runner",
-            return_value=mock_runner,
-        ):
-            execution_id = await _start_execution(client, sequence_id)
-            result = await _poll_execution(client, execution_id)
+        r = await client.post(f"/api/v1/sequences/{sequence_id}/executions", json={})
+        assert r.status_code == 422
+        assert "No plan" in r.json()["detail"]
 
-        assert result["status"] == "failed"
-        assert len(mock_runner.spawned) == 0
-
-        # Should have error event
-        r = await client.get(f"/api/v1/executions/{execution_id}/events")
-        events = r.json()
-        run_completed = next(e for e in events if e["event_type"] == "run_completed")
-        payload = json.loads(run_completed["payload"])
-        assert "No plan" in payload["error"]
+        # No execution record should have been created
+        execs = await client.get(f"/api/v1/sequences/{sequence_id}/executions")
+        assert execs.json() == []
 
     @pytest.mark.asyncio
     async def test_no_repo_fails_fast(self, e2e_client: AsyncClient):
-        """Execution without a registered repository fails with clear error."""
+        """No repo → preflight rejects with 422 before creating an execution record."""
         client = e2e_client
-        mock_runner = E2EMockRunner()
 
         project_id = await _create_project(client)
         # No repo registered
         sequence_id = await _create_sequence(client, project_id)
         await _upload_plan(client, sequence_id, SIMPLE_PLAN)
 
-        with patch(
-            "wave_server.engine.execution_manager.get_runner",
-            return_value=mock_runner,
-        ):
-            execution_id = await _start_execution(client, sequence_id)
-            result = await _poll_execution(client, execution_id)
+        r = await client.post(f"/api/v1/sequences/{sequence_id}/executions", json={})
+        assert r.status_code == 422
+        assert "repository" in r.json()["detail"].lower()
 
-        assert result["status"] == "failed"
-        assert len(mock_runner.spawned) == 0
-
-        r = await client.get(f"/api/v1/executions/{execution_id}/events")
-        events = r.json()
-        run_completed = next(e for e in events if e["event_type"] == "run_completed")
-        payload = json.loads(run_completed["payload"])
-        assert "repository" in payload["error"].lower()
+        # No execution record should have been created
+        execs = await client.get(f"/api/v1/sequences/{sequence_id}/executions")
+        assert execs.json() == []
 
 
 class TestE2ECancelAndContinue:

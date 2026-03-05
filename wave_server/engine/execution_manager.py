@@ -160,6 +160,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             plan_content = storage.read_plan(sequence_id)
             if not plan_content:
                 execution.status = "failed"
+                execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
                     db, execution_id, "run_completed",
@@ -172,6 +173,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             valid, errors = validate_plan(plan)
             if not valid:
                 execution.status = "failed"
+                execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
                     db, execution_id, "run_completed",
@@ -209,6 +211,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
 
             if not repo_cwd:
                 execution.status = "failed"
+                execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
                     db, execution_id, "run_completed",
@@ -234,6 +237,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 if execution.source_sha:
                     if not await sha_exists(repo_cwd, execution.source_sha):
                         execution.status = "failed"
+                        execution.finished_at = datetime.now(timezone.utc)
                         await db.commit()
                         await _emit_event(
                             db, execution_id, "run_completed",
@@ -262,6 +266,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     if original_branch:
                         await checkout_branch(repo_cwd, original_branch)
                     execution.status = "failed"
+                    execution.finished_at = datetime.now(timezone.utc)
                     await db.commit()
                     await _emit_event(
                         db, execution_id, "run_completed",
@@ -289,6 +294,10 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     project_env = json.loads(project.env_vars)
                 except (json.JSONDecodeError, TypeError):
                     pass
+
+            # Inject model — project env can override, otherwise use server default
+            if "ANTHROPIC_MODEL" not in project_env:
+                project_env["ANTHROPIC_MODEL"] = server_settings.default_model
 
             # Inject server-wide GitHub token (project env can override)
             github_token = project_env.get("GITHUB_TOKEN") or server_settings.github_token

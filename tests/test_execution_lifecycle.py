@@ -835,26 +835,16 @@ class TestExecutionAPI:
     """Test execution creation, cancellation, and continuation via API."""
 
     @pytest.mark.asyncio
-    async def test_create_execution_returns_queued(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_create_execution_returns_queued(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         assert r.status_code == 201
         assert r.json()["status"] == "queued"
         assert r.json()["trigger"] == "initial"
 
     @pytest.mark.asyncio
-    async def test_create_execution_custom_config(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_create_execution_custom_config(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         r = await client.post(
             f"/api/v1/sequences/{sid}/executions",
             json={"runtime": "claude", "concurrency": 8, "timeout_ms": 60000},
@@ -865,13 +855,8 @@ class TestExecutionAPI:
         assert config["timeout_ms"] == 60000
 
     @pytest.mark.asyncio
-    async def test_cancel_running_execution(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_cancel_running_execution(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         eid = exc.json()["id"]
         r = await client.post(f"/api/v1/executions/{eid}/cancel")
@@ -880,60 +865,36 @@ class TestExecutionAPI:
         assert r.json()["status"] == "cancelled"
 
     @pytest.mark.asyncio
-    async def test_cancel_already_completed_fails(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_cancel_already_completed_fails(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         eid = exc.json()["id"]
-        # Cancel first
         await client.post(f"/api/v1/executions/{eid}/cancel")
-        # Try to cancel again
         r = await client.post(f"/api/v1/executions/{eid}/cancel")
         assert r.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_continue_creates_new_execution(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_continue_creates_new_execution(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         eid = exc.json()["id"]
-        # Cancel to make it resumable
         await client.post(f"/api/v1/executions/{eid}/cancel")
-        # Continue
         r = await client.post(f"/api/v1/executions/{eid}/continue")
         assert r.status_code == 201
         assert r.json()["trigger"] == "continuation"
         assert r.json()["id"] != eid
 
     @pytest.mark.asyncio
-    async def test_continue_running_execution_fails(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_continue_running_execution_fails(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         eid = exc.json()["id"]
         r = await client.post(f"/api/v1/executions/{eid}/continue")
         assert r.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_list_executions(self, client):
-        proj = await client.post("/api/v1/projects", json={"name": "p"})
-        pid = proj.json()["id"]
-        seq = await client.post(
-            f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-        )
-        sid = seq.json()["id"]
+    async def test_list_executions(self, client, ready_sequence):
+        sid = ready_sequence["sequence_id"]
         await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         r = await client.get(f"/api/v1/sequences/{sid}/executions")
