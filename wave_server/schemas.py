@@ -102,6 +102,8 @@ class ExecutionCreate(BaseModel):
     timeout_ms: int | None = None
     source_branch: str | None = None
     source_sha: str | None = None
+    model: str | None = None
+    agent_models: dict[str, str] | None = None
 
 
 class ExecutionResponse(BaseModel):

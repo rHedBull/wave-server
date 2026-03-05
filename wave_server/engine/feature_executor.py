@@ -56,6 +56,8 @@ async def execute_feature(
     wave_num: int = 1,
     env: dict[str, str] | None = None,
     auto_commit: bool = False,
+    model: str | None = None,
+    agent_models: dict[str, str] | None = None,
     on_task_start: Callable[[Task], Any] | None = None,
     on_task_end: Callable[[Task, TaskResult], Any] | None = None,
     on_log: Callable[[str], Any] | None = None,
@@ -147,7 +149,10 @@ async def execute_feature(
                     "Use relative paths only. Do NOT run git checkout or git branch commands."
                 )
 
-            config = RunnerConfig(task_id=task.id, prompt=prompt, cwd=task_cwd, env=env)
+            # Resolve model: agent-specific override > execution default
+            task_model = (agent_models or {}).get(task.agent) or model or None
+
+            config = RunnerConfig(task_id=task.id, prompt=prompt, cwd=task_cwd, env=env, model=task_model)
             runner_result = await runner.spawn(config)
             elapsed_ms = int((time.monotonic() - start) * 1000)
             output = runner.extract_final_output(runner_result.stdout)

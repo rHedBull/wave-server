@@ -52,6 +52,8 @@ class WaveExecutorOptions:
     skip_task_ids: set[str] = field(default_factory=set)
     repo_root: str | None = None    # separate from cwd for worktree creation
     use_worktrees: bool = True       # can disable for non-git or testing
+    model: str | None = None                      # default model for all tasks
+    agent_models: dict[str, str] | None = None    # per-agent-type overrides
 
     # Callbacks (async or sync — async callbacks are awaited)
     on_progress: Callable[[ProgressUpdate], Any] | None = None
@@ -105,11 +107,18 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
 
         from wave_server.engine.types import RunnerConfig
 
+        # Resolve model: agent-specific override > execution default > server default
+        task_model = (
+            (opts.agent_models or {}).get(task.agent)
+            or opts.model
+        ) or None
+
         config = RunnerConfig(
             task_id=task.id,
             prompt=prompt,
             cwd=opts.cwd,
             env=opts.env,
+            model=task_model,
         )
 
         runner_result = await opts.runner.spawn(config)
@@ -225,6 +234,8 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 wave_num=opts.wave_num,
                 env=opts.env,
                 auto_commit=opts.repo_root is not None,
+                model=opts.model,
+                agent_models=opts.agent_models,
                 on_task_start=lambda task: _call(opts.on_task_start, f"feature:{feature.name}", task),
                 on_task_end=lambda task, tr: _call(opts.on_task_end, f"feature:{feature.name}", task, tr),
                 on_log=opts.on_log,

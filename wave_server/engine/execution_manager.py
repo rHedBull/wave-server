@@ -196,6 +196,22 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             config = json.loads(execution.config or "{}")
             runner = get_runner(execution.runtime)
             max_concurrency = config.get("concurrency") or settings.default_concurrency
+            # Model resolution: per-execution > server default
+            exec_model: str | None = config.get("model") or settings.default_model
+
+            # Build agent_models: server-level per-agent defaults, overridden by execution-level
+            server_agent_models: dict[str, str] = {}
+            if settings.default_model_worker:
+                server_agent_models["worker"] = settings.default_model_worker
+            if settings.default_model_test_writer:
+                server_agent_models["test-writer"] = settings.default_model_test_writer
+            if settings.default_model_wave_verifier:
+                server_agent_models["wave-verifier"] = settings.default_model_wave_verifier
+
+            exec_agent_models: dict[str, str] | None = (
+                {**server_agent_models, **(config.get("agent_models") or {})}
+                or None
+            )
             spec_content = storage.read_spec(sequence_id) or ""
 
             # Resolve repo path for execution cwd
@@ -459,6 +475,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     max_concurrency=max_concurrency,
                     repo_root=repo_cwd if use_git else None,
                     use_worktrees=use_git,
+                    model=exec_model,
+                    agent_models=exec_agent_models,
                     on_task_start=on_task_start,
                     on_task_end=on_task_end,
                     on_log=on_log,

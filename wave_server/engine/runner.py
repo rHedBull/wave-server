@@ -35,8 +35,10 @@ class ClaudeCodeRunner:
             "--output-format",
             "stream-json",
             "--dangerously-skip-permissions",
-            config.prompt,
         ]
+        if config.model:
+            cmd += ["--model", config.model]
+        cmd.append(config.prompt)
 
         try:
             # Merge project env vars into the subprocess environment

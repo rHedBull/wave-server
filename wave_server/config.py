@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     default_concurrency: int = 4
     default_timeout_ms: int = 300_000  # 5 minutes
     runtime: str = "claude"
+    default_model: str = "claude-sonnet-4-5"
+    default_model_worker: str | None = None
+    default_model_test_writer: str | None = None
+    default_model_wave_verifier: str | None = None
     github_token: str | None = None
     git_committer_name: str | None = None
     git_committer_email: str | None = None

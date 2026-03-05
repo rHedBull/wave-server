@@ -103,6 +103,7 @@ class RunnerConfig:
     cwd: str
     timeout_ms: int | None = None
     env: dict[str, str] | None = None
+    model: str | None = None
 
 
 @dataclass

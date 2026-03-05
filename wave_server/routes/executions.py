@@ -35,6 +35,8 @@ async def create_execution(
         {
             "concurrency": body.concurrency,
             "timeout_ms": body.timeout_ms,
+            "model": body.model,
+            "agent_models": body.agent_models,
         }
     )
     execution = Execution(
