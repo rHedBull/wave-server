@@ -14,6 +14,7 @@ import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import AppShell from "@/components/AppShell";
 import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
+import CopyableId from "@/components/CopyableId";
 import { usePolling } from "@/hooks/usePolling";
 import { api, type Project, type Sequence } from "@/lib/api";
 
@@ -108,23 +109,34 @@ export default function ProjectDetailPage({
           items={sequences || []}
           cardDefinition={{
             header: (item) => (
-              <SpaceBetween direction="horizontal" size="xs">
+              <Box fontWeight="bold">
                 <a
                   href={`/sequences/${item.id}`}
                   onClick={(e) => {
                     e.preventDefault();
                     router.push(`/sequences/${item.id}`);
                   }}
-                  style={{ textDecoration: "none", color: "inherit", fontWeight: "bold" }}
+                  style={{ textDecoration: "none", color: "inherit" }}
                 >
                   {item.name}
                 </a>
-                <StatusIndicator type={statusType(item.status)}>
-                  {item.status}
-                </StatusIndicator>
-              </SpaceBetween>
+              </Box>
             ),
             sections: [
+              {
+                id: "status",
+                header: "Status",
+                content: (item) => (
+                  <StatusIndicator type={statusType(item.status)}>
+                    {item.status}
+                  </StatusIndicator>
+                ),
+              },
+              {
+                id: "id",
+                header: "ID",
+                content: (item) => <CopyableId id={item.id} label="" />,
+              },
               {
                 id: "description",
                 header: "Description",
