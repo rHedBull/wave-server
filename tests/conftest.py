@@ -68,6 +68,14 @@ def mock_network():
         yield
 
 
+@pytest.fixture(autouse=True)
+def mock_claude_cli():
+    """Pretend claude is installed in all tests (CI has no claude binary).
+    Override per-test to simulate missing CLI."""
+    with patch("wave_server.routes.executions.shutil.which", return_value="/usr/bin/claude"):
+        yield
+
+
 @pytest_asyncio.fixture
 async def ready_sequence(client: AsyncClient, tmp_path: Path):
     """Project + sequence + valid plan + repo directory — ready to launch an execution."""
