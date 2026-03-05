@@ -39,7 +39,7 @@ class Sequence(Base):
     project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String, default="drafting")
+    status: Mapped[str] = mapped_column(String, default="pending")
     spec_path: Mapped[str | None] = mapped_column(String, nullable=True)
     plan_path: Mapped[str | None] = mapped_column(String, nullable=True)
     wave_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -58,7 +58,7 @@ class Execution(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     sequence_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String, default="queued")
+    status: Mapped[str] = mapped_column(String, default="pending")
     trigger: Mapped[str] = mapped_column(String, default="initial")
     runtime: Mapped[str] = mapped_column(String, default="claude")
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)

@@ -164,7 +164,7 @@ def test_state_mark_tasks():
     mark_task_done(state, "t1")
     mark_task_failed(state, "t2")
 
-    assert state.task_states["t1"] == "done"
+    assert state.task_states["t1"] == "completed"
     assert state.task_states["t2"] == "failed"
 
     ids = completed_task_ids(state)

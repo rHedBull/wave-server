@@ -25,7 +25,7 @@ def create_initial_state(plan_file: str) -> ExecutionState:
 
 
 def mark_task_done(state: ExecutionState, task_id: str) -> None:
-    state.task_states[task_id] = "done"
+    state.task_states[task_id] = "completed"
     state.updated_at = datetime.now(timezone.utc).isoformat()
 
 
@@ -45,7 +45,7 @@ def advance_to_wave(state: ExecutionState, wave_index: int) -> None:
 
 
 def completed_task_ids(state: ExecutionState) -> set[str]:
-    return {tid for tid, status in state.task_states.items() if status == "done"}
+    return {tid for tid, status in state.task_states.items() if status == "completed"}
 
 
 def state_to_json(state: ExecutionState) -> str:

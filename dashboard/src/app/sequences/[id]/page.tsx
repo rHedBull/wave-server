@@ -28,7 +28,6 @@ function statusType(status: string) {
     case "failed":
       return "error" as const;
     case "running":
-    case "executing":
       return "in-progress" as const;
     case "cancelled":
       return "stopped" as const;

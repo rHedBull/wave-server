@@ -189,7 +189,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
             execution.status = "running"
             execution.total_tasks = total_tasks
             execution.started_at = datetime.now(timezone.utc)
-            sequence.status = "executing"
+            sequence.status = "running"
             await db.commit()
 
             await _emit_event(db, execution_id, "run_started")

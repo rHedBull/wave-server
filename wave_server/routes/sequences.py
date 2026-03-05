@@ -13,12 +13,13 @@ router = APIRouter()
 
 
 async def _enrich_sequence_status(db: AsyncSession, seq: Sequence) -> Sequence:
-    """Derive effective status from latest execution when DB still says 'drafting'.
+    """Derive effective status from latest execution when DB still says 'pending'.
 
-    Modifies `seq.status` in-place for the response but expunges the object
-    so the change is NOT persisted back to the database.
+    Covers the window between execution creation and the background task
+    updating the sequence status itself. Modifies `seq.status` in-place for
+    the response but expunges the object so the change is NOT persisted.
     """
-    if seq.status != "drafting":
+    if seq.status != "pending":
         return seq
     result = await db.execute(
         select(Execution.status)
@@ -27,9 +28,9 @@ async def _enrich_sequence_status(db: AsyncSession, seq: Sequence) -> Sequence:
         .limit(1)
     )
     latest_status = result.scalar_one_or_none()
-    if latest_status:
+    if latest_status and latest_status != "pending":
         db.expunge(seq)
-        seq.status = "executing" if latest_status == "running" else latest_status
+        seq.status = latest_status
     return seq
 
 

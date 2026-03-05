@@ -168,5 +168,5 @@ async def test_preflight_all_pass(client: AsyncClient, ready_sequence):
     r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
 
     assert r.status_code == 201
-    assert r.json()["status"] == "queued"
+    assert r.json()["status"] == "pending"
     assert await _execution_count(client, sid) == 1

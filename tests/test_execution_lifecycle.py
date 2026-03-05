@@ -1,7 +1,7 @@
 """Comprehensive tests for execution state management and lifecycle.
 
 Covers:
-- Full execution lifecycle (queued → running → completed/failed)
+- Full execution lifecycle (pending → running → completed/failed)
 - Repo validation (fail-fast when no repo configured)
 - Context file loading and injection
 - Callback event emission (no fire-and-forget DB races)
@@ -835,11 +835,11 @@ class TestExecutionAPI:
     """Test execution creation, cancellation, and continuation via API."""
 
     @pytest.mark.asyncio
-    async def test_create_execution_returns_queued(self, client, ready_sequence):
+    async def test_create_execution_returns_pending(self, client, ready_sequence):
         sid = ready_sequence["sequence_id"]
         r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
         assert r.status_code == 201
-        assert r.json()["status"] == "queued"
+        assert r.json()["status"] == "pending"
         assert r.json()["trigger"] == "initial"
 
     @pytest.mark.asyncio

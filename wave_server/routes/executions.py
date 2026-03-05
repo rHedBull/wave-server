@@ -148,7 +148,7 @@ async def cancel_execution(
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
-    if exc.status not in ("queued", "running"):
+    if exc.status not in ("pending", "running"):
         raise HTTPException(400, "Execution is not running")
     from wave_server.engine.execution_manager import cancel_execution as cancel_bg
     cancel_bg(execution_id)
