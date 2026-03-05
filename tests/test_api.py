@@ -92,7 +92,7 @@ async def test_create_sequence(client: AsyncClient):
     )
     assert r.status_code == 201
     assert r.json()["name"] == "add-auth"
-    assert r.json()["status"] == "drafting"
+    assert r.json()["status"] == "pending"
 
 
 @pytest.mark.asyncio
@@ -433,7 +433,7 @@ async def test_create_execution(client: AsyncClient, ready_sequence):
     sid = ready_sequence["sequence_id"]
     r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
     assert r.status_code == 201
-    assert r.json()["status"] == "queued"
+    assert r.json()["status"] == "pending"
     assert r.json()["runtime"] == "claude"
 
 

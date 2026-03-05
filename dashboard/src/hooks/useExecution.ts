@@ -11,7 +11,7 @@ export function useExecution(executionId: string) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loading = execution === null;
-  const isActive = execution?.status === "queued" || execution?.status === "running";
+  const isActive = execution?.status === "pending" || execution?.status === "running";
 
   const fetchExecution = useCallback(async () => {
     try {

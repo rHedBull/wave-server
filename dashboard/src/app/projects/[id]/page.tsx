@@ -24,9 +24,10 @@ function statusType(status: string) {
       return "success";
     case "failed":
       return "error";
-    case "executing":
     case "running":
       return "in-progress";
+    case "cancelled":
+      return "stopped";
     default:
       return "pending";
   }
