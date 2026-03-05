@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     database_url: str | None = None
     default_concurrency: int = 4
     default_timeout_ms: int = 300_000  # 5 minutes
+    default_model: str = "claude-sonnet-4-5"
     runtime: str = "claude"
     github_token: str | None = None
     git_committer_name: str | None = None

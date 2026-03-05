@@ -321,9 +321,11 @@ export default function SequenceDetailPage({
                       header: "Duration",
                       cell: (item) => {
                         if (!item.started_at) return "—";
-                        const start = new Date(item.started_at).getTime();
+                        const terminal = ["completed", "failed", "cancelled"].includes(item.status as string);
+                        if (terminal && !item.finished_at) return "—";
+                        const start = new Date(item.started_at as string).getTime();
                         const end = item.finished_at
-                          ? new Date(item.finished_at).getTime()
+                          ? new Date(item.finished_at as string).getTime()
                           : Date.now();
                         const secs = Math.floor((end - start) / 1000);
                         if (secs < 60) return `${secs}s`;

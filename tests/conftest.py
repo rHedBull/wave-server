@@ -1,7 +1,11 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from unittest.mock import patch
+
+# Ensure all tests (including live ones) use sonnet — fast and cheap.
+os.environ.setdefault("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
 import pytest
 import pytest_asyncio
