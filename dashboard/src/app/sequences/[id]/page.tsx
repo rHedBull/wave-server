@@ -16,8 +16,9 @@ import Textarea from "@cloudscape-design/components/textarea";
 import AppShell from "@/components/AppShell";
 import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 import MarkdownView from "@/components/MarkdownView";
+import PlanGraphView from "@/components/PlanGraph";
 import { usePolling } from "@/hooks/usePolling";
-import { api, type Execution, type Project, type Sequence } from "@/lib/api";
+import { api, type Execution, type PlanGraph, type Project, type Sequence } from "@/lib/api";
 
 function statusType(status: string) {
   switch (status) {
@@ -52,6 +53,8 @@ export default function SequenceDetailPage({
 
   const [spec, setSpec] = useState<string | null>(null);
   const [plan, setPlan] = useState<string | null>(null);
+  const [planGraph, setPlanGraph] = useState<PlanGraph | null>(null);
+  const [planGraphLoading, setPlanGraphLoading] = useState(true);
 
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -64,6 +67,8 @@ export default function SequenceDetailPage({
   useEffect(() => {
     api.getSpec(id).then(setSpec);
     api.getPlan(id).then(setPlan);
+    setPlanGraphLoading(true);
+    api.getPlanGraph(id).then(setPlanGraph).finally(() => setPlanGraphLoading(false));
   }, [id]);
 
   useEffect(() => {
@@ -187,6 +192,16 @@ export default function SequenceDetailPage({
               label: "Plan",
               id: "plan",
               content: <MarkdownView title="Plan" content={plan} />,
+            },
+            {
+              label: "Graph",
+              id: "graph",
+              content: (
+                <PlanGraphView
+                  graph={planGraph}
+                  loading={planGraphLoading}
+                />
+              ),
             },
             {
               label: "Executions",

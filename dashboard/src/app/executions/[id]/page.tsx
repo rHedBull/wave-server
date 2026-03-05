@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Box from "@cloudscape-design/components/box";
 import Button from "@cloudscape-design/components/button";
@@ -15,12 +15,13 @@ import SplitPanel from "@cloudscape-design/components/split-panel";
 import AppShell from "@/components/AppShell";
 import BlockerBanner from "@/components/BlockerBanner";
 import LogTail from "@/components/LogTail";
+import PlanGraphView, { type TaskStatusMap } from "@/components/PlanGraph";
 import TaskDetail from "@/components/TaskDetail";
 import TaskLogSearch from "@/components/TaskLogSearch";
 import TaskTable from "@/components/TaskTable";
 import WaveTimeline from "@/components/WaveTimeline";
 import { useExecution } from "@/hooks/useExecution";
-import { api, type Project, type Sequence } from "@/lib/api";
+import { api, type PlanGraph, type Project, type Sequence } from "@/lib/api";
 
 function statusType(status: string) {
   switch (status) {
@@ -49,6 +50,7 @@ export default function ExecutionPage({
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [sequence, setSequence] = useState<Sequence | null>(null);
   const [project, setProject] = useState<Project | null>(null);
+  const [planGraph, setPlanGraph] = useState<PlanGraph | null>(null);
 
   useEffect(() => {
     if (execution?.sequence_id) {
@@ -58,8 +60,20 @@ export default function ExecutionPage({
           api.getProject(seq.project_id).then(setProject).catch(() => {});
         }
       }).catch(() => {});
+      api.getPlanGraph(execution.sequence_id).then(setPlanGraph).catch(() => {});
     }
   }, [execution?.sequence_id]);
+
+  // Build task status map from execution tasks
+  const taskStatuses: TaskStatusMap = useMemo(() => {
+    const map: TaskStatusMap = {};
+    for (const t of tasks) {
+      const tid = t.task_id as string;
+      const status = t.status as string;
+      if (tid && status) map[tid] = status;
+    }
+    return map;
+  }, [tasks]);
 
   const handleCancel = async () => {
     await api.cancelExecution(id);
@@ -235,6 +249,15 @@ export default function ExecutionPage({
         <Container header={<Header variant="h3">Wave Progress</Header>}>
           <WaveTimeline execution={execution} events={events} />
         </Container>
+
+        {/* Execution Graph */}
+        {planGraph && (
+          <PlanGraphView
+            graph={planGraph}
+            taskStatuses={taskStatuses}
+            onSelectTask={setSelectedTask}
+          />
+        )}
 
         {/* Task Table */}
         <TaskTable

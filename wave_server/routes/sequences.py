@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wave_server.db import get_db
+from wave_server.engine.plan_parser import parse_plan
 from wave_server.models import Command, Event, Execution, Project, Sequence
 from wave_server.schemas import SequenceCreate, SequenceResponse, SequenceUpdate
 from wave_server import storage
@@ -169,3 +170,48 @@ async def get_plan(sequence_id: str, db: AsyncSession = Depends(get_db)):
     if content is None:
         raise HTTPException(404, "Plan not found")
     return PlainTextResponse(content)
+
+
+# --- Plan Graph ---
+
+
+@router.get("/sequences/{sequence_id}/plan-graph")
+async def get_plan_graph(sequence_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the parsed plan as a structured JSON graph for visualization."""
+    seq = await db.get(Sequence, sequence_id)
+    if not seq:
+        raise HTTPException(404, "Sequence not found")
+    content = storage.read_plan(sequence_id)
+    if content is None:
+        raise HTTPException(404, "Plan not found")
+
+    plan = parse_plan(content)
+
+    def task_to_dict(t):
+        return {
+            "id": t.id,
+            "title": t.title,
+            "agent": t.agent,
+            "files": t.files,
+            "depends": t.depends,
+        }
+
+    waves = []
+    for i, wave in enumerate(plan.waves):
+        waves.append({
+            "index": i,
+            "name": wave.name,
+            "description": wave.description or "",
+            "foundation": [task_to_dict(t) for t in wave.foundation],
+            "features": [
+                {
+                    "name": f.name,
+                    "files": f.files,
+                    "tasks": [task_to_dict(t) for t in f.tasks],
+                }
+                for f in wave.features
+            ],
+            "integration": [task_to_dict(t) for t in wave.integration],
+        })
+
+    return {"goal": plan.goal, "waves": waves}
