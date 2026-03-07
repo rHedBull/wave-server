@@ -178,17 +178,19 @@ async def continue_execution(
         await _preflight(exc.sequence_id, seq.project_id, db)
     new_exec = Execution(
         sequence_id=exc.sequence_id,
+        continued_from=execution_id,
         trigger="continuation",
         runtime=exc.runtime,
         config=exc.config,
         source_branch=exc.source_branch,
         source_sha=exc.source_sha,
+        work_branch=exc.work_branch,
     )
     db.add(new_exec)
     await db.commit()
     await db.refresh(new_exec)
     from wave_server.engine.execution_manager import launch_execution
-    await launch_execution(new_exec.id, exc.sequence_id)
+    await launch_execution(new_exec.id, exc.sequence_id, continue_from=execution_id)
     return new_exec
 
 

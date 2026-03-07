@@ -58,6 +58,7 @@ class Execution(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     sequence_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    continued_from: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending")
     trigger: Mapped[str] = mapped_column(String, default="initial")
     runtime: Mapped[str] = mapped_column(String, default="claude")

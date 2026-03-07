@@ -936,3 +936,181 @@ class TestMissingRecords:
         from wave_server.engine.execution_manager import _run_execution
         # Pass valid execution but wrong sequence
         await _run_execution(exec_id, "wrong-sequence-id")
+
+
+# ── Tests: Continuation (continue_from) ──────────────────────
+
+
+class TestContinuation:
+    """Test _run_execution with continue_from — skipping completed tasks."""
+
+    @pytest.mark.asyncio
+    async def test_get_completed_task_ids(self, test_db):
+        """_get_completed_task_ids returns only IDs from task_completed events."""
+        from wave_server.engine.execution_manager import _get_completed_task_ids
+
+        async with test_db() as db:
+            # Seed some events for an execution
+            exec_id = "test-exec-001"
+            events = [
+                Event(execution_id=exec_id, event_type="task_started", task_id="t1"),
+                Event(execution_id=exec_id, event_type="task_completed", task_id="t1"),
+                Event(execution_id=exec_id, event_type="task_started", task_id="t2"),
+                Event(execution_id=exec_id, event_type="task_failed", task_id="t2"),
+                Event(execution_id=exec_id, event_type="task_started", task_id="t3"),
+                Event(execution_id=exec_id, event_type="task_completed", task_id="t3"),
+                Event(execution_id=exec_id, event_type="run_completed"),
+            ]
+            db.add_all(events)
+            await db.commit()
+
+            completed = await _get_completed_task_ids(db, exec_id)
+
+        assert completed == {"t1", "t3"}
+
+    @pytest.mark.asyncio
+    async def test_get_completed_task_ids_empty(self, test_db):
+        """Returns empty set when no tasks completed."""
+        from wave_server.engine.execution_manager import _get_completed_task_ids
+
+        async with test_db() as db:
+            exec_id = "test-exec-empty"
+            events = [
+                Event(execution_id=exec_id, event_type="task_started", task_id="t1"),
+                Event(execution_id=exec_id, event_type="task_failed", task_id="t1"),
+            ]
+            db.add_all(events)
+            await db.commit()
+
+            completed = await _get_completed_task_ids(db, exec_id)
+
+        assert completed == set()
+
+    @pytest.mark.asyncio
+    async def test_continue_skips_completed_tasks(self, test_db, tmp_path):
+        """_run_execution with continue_from skips tasks completed in prior execution."""
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        # Run 1: task 1-1 succeeds, 1-2 fails
+        runner1 = MockRunner(results={"1-2": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner1,
+        ):
+            _, seq_id, exec1_id = await _setup_project_and_sequence(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+
+            await _run_execution(exec1_id, seq_id)
+            await asyncio.sleep(0.1)
+
+        exc1 = await _get_execution(test_db, exec1_id)
+        assert exc1.status == "failed"
+        assert "1-1" in runner1.spawned
+
+        # Run 2: continue from run 1
+        runner2 = MockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner2,
+        ):
+            async with test_db() as db:
+                exec2 = Execution(
+                    sequence_id=seq_id,
+                    continued_from=exec1_id,
+                    trigger="continuation",
+                    runtime="claude",
+                    config=json.dumps({"concurrency": 2, "timeout_ms": 60000}),
+                )
+                db.add(exec2)
+                await db.commit()
+                await db.refresh(exec2)
+                exec2_id = exec2.id
+
+            await _run_execution(exec2_id, seq_id, continue_from=exec1_id)
+            await asyncio.sleep(0.1)
+
+        exc2 = await _get_execution(test_db, exec2_id)
+        assert exc2.status == "completed"
+
+        # 1-1 was completed in run 1 → skipped in run 2
+        assert "1-1" not in runner2.spawned
+        # 1-2 failed in run 1 → re-run in run 2
+        assert "1-2" in runner2.spawned
+
+    @pytest.mark.asyncio
+    async def test_continue_events_include_skipped_tasks(self, test_db, tmp_path):
+        """Resumed tasks still emit task_completed events in the new execution."""
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        # Run 1: 1-1 succeeds, 1-2 fails
+        runner1 = MockRunner(results={"1-2": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner1,
+        ):
+            _, seq_id, exec1_id = await _setup_project_and_sequence(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+
+            await _run_execution(exec1_id, seq_id)
+            await asyncio.sleep(0.1)
+
+        # Run 2: continue
+        runner2 = MockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner2,
+        ):
+            async with test_db() as db:
+                exec2 = Execution(
+                    sequence_id=seq_id,
+                    continued_from=exec1_id,
+                    trigger="continuation",
+                    runtime="claude",
+                    config=json.dumps({"concurrency": 2, "timeout_ms": 60000}),
+                )
+                db.add(exec2)
+                await db.commit()
+                await db.refresh(exec2)
+                exec2_id = exec2.id
+
+            await _run_execution(exec2_id, seq_id, continue_from=exec1_id)
+            await asyncio.sleep(0.1)
+
+        # The new execution should have task_completed events for both tasks
+        events = await _get_events(test_db, exec2_id)
+        completed_task_ids = [
+            e.task_id for e in events if e.event_type == "task_completed"
+        ]
+        assert "1-1" in completed_task_ids  # resumed (skipped)
+        assert "1-2" in completed_task_ids  # actually re-run
+
+    @pytest.mark.asyncio
+    async def test_continue_with_nonexistent_parent_runs_all(self, test_db, tmp_path):
+        """If continue_from references a bogus ID, no tasks are skipped."""
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        runner = MockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner,
+        ):
+            _, seq_id, exec_id = await _setup_project_and_sequence(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+
+            await _run_execution(exec_id, seq_id, continue_from="nonexistent")
+            await asyncio.sleep(0.1)
+
+        exc = await _get_execution(test_db, exec_id)
+        assert exc.status == "completed"
+        # All tasks should have been spawned (nothing to skip)
+        assert "1-1" in runner.spawned
+        assert "1-2" in runner.spawned

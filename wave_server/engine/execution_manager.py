@@ -99,9 +99,17 @@ def _get_git_sha(cwd: str) -> str | None:
         return None
 
 
-async def launch_execution(execution_id: str, sequence_id: str) -> None:
-    """Launch a background execution task."""
-    task = asyncio.create_task(_run_execution(execution_id, sequence_id))
+async def launch_execution(
+    execution_id: str, sequence_id: str, continue_from: str | None = None
+) -> None:
+    """Launch a background execution task.
+
+    If *continue_from* is set, the new execution resumes where the previous
+    one left off — already-completed tasks are skipped.
+    """
+    task = asyncio.create_task(
+        _run_execution(execution_id, sequence_id, continue_from)
+    )
     _active_tasks[execution_id] = task
     task.add_done_callback(lambda _: _active_tasks.pop(execution_id, None))
 
@@ -137,7 +145,22 @@ async def _emit_event(
     await db.commit()
 
 
-async def _run_execution(execution_id: str, sequence_id: str) -> None:
+async def _get_completed_task_ids(
+    db: AsyncSession, execution_id: str
+) -> set[str]:
+    """Return the set of task IDs that completed successfully in a previous execution."""
+    result = await db.execute(
+        select(Event.task_id)
+        .where(Event.execution_id == execution_id)
+        .where(Event.event_type == "task_completed")
+        .where(Event.task_id.isnot(None))
+    )
+    return {row[0] for row in result.all()}
+
+
+async def _run_execution(
+    execution_id: str, sequence_id: str, continue_from: str | None = None
+) -> None:
     """Background task that runs the full wave execution."""
     # Lock to serialize all DB writes — prevents SQLite "database is locked"
     # when concurrent tasks try to commit at the same time.
@@ -265,9 +288,13 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
 
                 # Create work branch: wave/exec-{short_id}
                 # With worktree isolation, feature worktrees branch from this.
-                short_id = execution_id[:8]
-                work_branch = f"wave/exec-{short_id}"
-                execution.work_branch = work_branch
+                # For continuations, reuse the previous execution's work branch.
+                if execution.work_branch:
+                    work_branch = execution.work_branch
+                else:
+                    short_id = execution_id[:8]
+                    work_branch = f"wave/exec-{short_id}"
+                    execution.work_branch = work_branch
 
                 start_point = execution.source_sha or source_branch
 
@@ -351,6 +378,15 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
 
             # Load state for resume
             state = create_initial_state("plan.md")
+
+            # Build skip set from previous execution's completed tasks
+            skip_task_ids: set[str] = set()
+            if continue_from:
+                skip_task_ids = await _get_completed_task_ids(db, continue_from)
+                # Pre-mark completed tasks in state so DAG dependencies are satisfied
+                for tid in skip_task_ids:
+                    mark_task_done(state, tid)
+
             start_time = time.monotonic()
 
             # ── Execution Logger ───────────────────────────────
@@ -363,6 +399,12 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                 wave_count=len(plan.waves),
             )
             exec_logger.execution_started()
+
+            if skip_task_ids:
+                exec_logger.log(
+                    f"♻️  Continuing from execution {continue_from[:8]}… "
+                    f"— {len(skip_task_ids)} completed tasks will be skipped"
+                )
 
             def _flush_log():
                 """Write execution log to disk (called frequently for live tailing)."""
@@ -484,6 +526,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     cwd=repo_cwd,
                     env=project_env or None,
                     max_concurrency=max_concurrency,
+                    skip_task_ids=skip_task_ids,
                     repo_root=repo_cwd if use_git else None,
                     use_worktrees=use_git,
                     model=exec_model,

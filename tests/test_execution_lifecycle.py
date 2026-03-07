@@ -889,8 +889,10 @@ class TestExecutionAPI:
         await client.post(f"/api/v1/executions/{eid}/cancel")
         r = await client.post(f"/api/v1/executions/{eid}/continue")
         assert r.status_code == 201
-        assert r.json()["trigger"] == "continuation"
-        assert r.json()["id"] != eid
+        data = r.json()
+        assert data["trigger"] == "continuation"
+        assert data["id"] != eid
+        assert data["continued_from"] == eid
 
     @pytest.mark.asyncio
     async def test_continue_running_execution_fails(self, client, ready_sequence):

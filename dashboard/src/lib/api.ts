@@ -45,6 +45,7 @@ export interface Sequence {
 export interface Execution {
   id: string;
   sequence_id: string;
+  continued_from: string | null;
   status: string;
   trigger: string;
   runtime: string;

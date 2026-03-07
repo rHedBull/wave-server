@@ -109,6 +109,7 @@ class ExecutionCreate(BaseModel):
 class ExecutionResponse(BaseModel):
     id: str
     sequence_id: str
+    continued_from: str | None = None
     status: str
     trigger: str
     runtime: str

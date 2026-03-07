@@ -657,6 +657,232 @@ class TestE2ECancelAndContinue:
         assert result["status"] == "completed"
 
 
+class TestE2EContinueSkipsCompleted:
+    """End-to-end tests that continuation skips already-completed tasks."""
+
+    @pytest.mark.asyncio
+    async def test_continue_skips_completed_tasks(self, e2e_client: AsyncClient, repo_dir: Path):
+        """When task 1-2 fails, continue should skip 1-1 and re-run 1-2 + 1-3."""
+        client = e2e_client
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, FAILING_TASK_PLAN)
+
+        # First run: task 1-1 succeeds, 1-2 fails, 1-3 skipped
+        fail_runner = E2EMockRunner(results={"1-2": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=fail_runner,
+        ):
+            exec_id = await _start_execution(client, sequence_id)
+            result = await _poll_execution(client, exec_id)
+
+        assert result["status"] == "failed"
+
+        # Verify task 1-1 completed in the first run
+        r = await client.get(f"/api/v1/executions/{exec_id}/tasks")
+        tasks = {t["task_id"]: t["status"] for t in r.json()}
+        assert tasks["1-1"] == "completed"
+        assert tasks["1-2"] == "failed"
+        # 1-3 is dependency-skipped at the DAG level (no event emitted)
+
+        # Continue: all tasks succeed now. 1-1 should be skipped (already done).
+        success_runner = E2EMockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=success_runner,
+        ):
+            r = await client.post(f"/api/v1/executions/{exec_id}/continue")
+            assert r.status_code == 201
+            new_exec_id = r.json()["id"]
+            assert r.json()["continued_from"] == exec_id
+
+            result = await _poll_execution(client, new_exec_id)
+
+        assert result["status"] == "completed"
+
+        # The runner should NOT have been asked to run task 1-1
+        assert "1-1" not in success_runner.spawned
+        # But SHOULD have run 1-2 and 1-3
+        assert "1-2" in success_runner.spawned
+        assert "1-3" in success_runner.spawned
+
+    @pytest.mark.asyncio
+    async def test_continue_multi_wave_skips_completed_wave(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
+        """Wave 1 passes, wave 2 fails → continue skips all wave 1 tasks."""
+        client = e2e_client
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, MULTI_WAVE_PLAN)
+
+        # First run: wave 2 task 2-2 fails (wave 1 fully passes)
+        fail_runner = E2EMockRunner(results={"2-2": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=fail_runner,
+        ):
+            exec_id = await _start_execution(client, sequence_id)
+            result = await _poll_execution(client, exec_id)
+
+        assert result["status"] == "failed"
+
+        # Continue: all succeed now
+        success_runner = E2EMockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=success_runner,
+        ):
+            r = await client.post(f"/api/v1/executions/{exec_id}/continue")
+            new_exec_id = r.json()["id"]
+            result = await _poll_execution(client, new_exec_id)
+
+        assert result["status"] == "completed"
+
+        # Wave 1 tasks should all be skipped (1-f1, 1-a1, 1-a2, 1-p1, 1-i1)
+        for tid in ["1-f1", "1-a1", "1-a2", "1-p1", "1-i1"]:
+            assert tid not in success_runner.spawned, f"{tid} should have been skipped"
+
+        # Wave 2 task 2-1 completed in first run → should be skipped
+        assert "2-1" not in success_runner.spawned
+        # Wave 2 task 2-2 failed → should be re-run
+        assert "2-2" in success_runner.spawned
+
+    @pytest.mark.asyncio
+    async def test_continue_no_completed_tasks(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
+        """When first task fails immediately, continue re-runs everything."""
+        client = e2e_client
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, FAILING_TASK_PLAN)
+
+        # First run: task 1-1 (the very first task) fails
+        fail_runner = E2EMockRunner(results={"1-1": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=fail_runner,
+        ):
+            exec_id = await _start_execution(client, sequence_id)
+            result = await _poll_execution(client, exec_id)
+
+        assert result["status"] == "failed"
+
+        # Continue: nothing to skip, all tasks re-run
+        success_runner = E2EMockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=success_runner,
+        ):
+            r = await client.post(f"/api/v1/executions/{exec_id}/continue")
+            new_exec_id = r.json()["id"]
+            result = await _poll_execution(client, new_exec_id)
+
+        assert result["status"] == "completed"
+        # All three tasks should have been spawned
+        assert "1-1" in success_runner.spawned
+        assert "1-2" in success_runner.spawned
+        assert "1-3" in success_runner.spawned
+
+    @pytest.mark.asyncio
+    async def test_double_continue(self, e2e_client: AsyncClient, repo_dir: Path):
+        """Continue a continuation — second continue should skip tasks from both ancestors."""
+        client = e2e_client
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, FAILING_TASK_PLAN)
+
+        # Run 1: task 1-1 succeeds, 1-2 fails
+        runner1 = E2EMockRunner(results={"1-2": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner1,
+        ):
+            exec1_id = await _start_execution(client, sequence_id)
+            await _poll_execution(client, exec1_id)
+
+        # Continue 1: 1-2 succeeds now, but 1-3 fails
+        runner2 = E2EMockRunner(results={"1-3": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner2,
+        ):
+            r = await client.post(f"/api/v1/executions/{exec1_id}/continue")
+            exec2_id = r.json()["id"]
+            result = await _poll_execution(client, exec2_id)
+
+        assert result["status"] == "failed"
+        # 1-1 was skipped (from exec1), 1-2 ran and passed, 1-3 ran and failed
+        assert "1-1" not in runner2.spawned
+        assert "1-2" in runner2.spawned
+        assert "1-3" in runner2.spawned
+
+        # Continue 2: continue the continuation
+        runner3 = E2EMockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner3,
+        ):
+            r = await client.post(f"/api/v1/executions/{exec2_id}/continue")
+            exec3_id = r.json()["id"]
+            result = await _poll_execution(client, exec3_id)
+
+        assert result["status"] == "completed"
+        # 1-1 and 1-2 both completed in exec2 → both skipped
+        assert "1-1" not in runner3.spawned
+        assert "1-2" not in runner3.spawned
+        # 1-3 failed in exec2 → re-run
+        assert "1-3" in runner3.spawned
+
+    @pytest.mark.asyncio
+    async def test_continue_reuses_work_branch(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
+        """Continuation should reuse the original execution's work branch."""
+        client = e2e_client
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, FAILING_TASK_PLAN)
+
+        # First run: fails
+        fail_runner = E2EMockRunner(results={"1-2": 1})
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=fail_runner,
+        ):
+            exec_id = await _start_execution(client, sequence_id)
+            result = await _poll_execution(client, exec_id)
+
+        original_branch = result.get("work_branch")
+
+        # Continue
+        success_runner = E2EMockRunner()
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=success_runner,
+        ):
+            r = await client.post(f"/api/v1/executions/{exec_id}/continue")
+            new_exec_id = r.json()["id"]
+            # Work branch should be copied from original
+            assert r.json()["work_branch"] == original_branch
+            result = await _poll_execution(client, new_exec_id)
+
+        assert result["status"] == "completed"
+        assert result["work_branch"] == original_branch
+
+
 class TestE2EContextFiles:
     """End-to-end test that context files are injected into prompts."""
 
