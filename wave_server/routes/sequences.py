@@ -12,15 +12,46 @@ from wave_server import storage
 router = APIRouter()
 
 
-async def _enrich_sequence_status(db: AsyncSession, seq: Sequence) -> Sequence:
-    """Derive effective status from latest execution when DB still says 'pending'.
+# Legacy status values from before the vocabulary unification.
+_LEGACY_STATUS_MAP = {
+    "executing": "running",
+    "drafting": "pending",
+    "queued": "pending",
+}
 
-    Covers the window between execution creation and the background task
-    updating the sequence status itself. Modifies `seq.status` in-place for
-    the response but expunges the object so the change is NOT persisted.
+
+def _normalize_status(status: str) -> str:
+    return _LEGACY_STATUS_MAP.get(status, status)
+
+
+_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+async def _enrich_sequence_status(db: AsyncSession, seq: Sequence) -> Sequence:
+    """Derive the effective sequence status from the latest execution.
+
+    Handles two cases:
+    1. status == 'pending' but an execution has already started → adopt its status.
+    2. status == 'running' but no execution is actually active → fall back to
+       the latest execution's terminal status.
+
+    Also normalises legacy status values (e.g. 'executing' → 'running').
+
+    Modifies `seq.status` in-place for the response but expunges the object
+    so the change is NOT persisted.
     """
-    if seq.status != "pending":
+    # Normalise legacy values first
+    normalised = _normalize_status(seq.status)
+    needs_expunge = normalised != seq.status
+    if needs_expunge:
+        db.expunge(seq)
+        seq.status = normalised
+
+    # Terminal statuses are authoritative — nothing to reconcile.
+    if seq.status in _TERMINAL_STATUSES:
         return seq
+
+    # For 'pending' or 'running', verify against the latest execution.
     result = await db.execute(
         select(Execution.status)
         .where(Execution.sequence_id == seq.id)
@@ -28,9 +59,20 @@ async def _enrich_sequence_status(db: AsyncSession, seq: Sequence) -> Sequence:
         .limit(1)
     )
     latest_status = result.scalar_one_or_none()
-    if latest_status and latest_status != "pending":
-        db.expunge(seq)
-        seq.status = latest_status
+
+    if latest_status is None:
+        # No executions at all — should be pending.
+        effective = "pending"
+    else:
+        effective = _normalize_status(latest_status)
+
+    if effective != seq.status:
+        if not needs_expunge:
+            try:
+                db.expunge(seq)
+            except Exception:
+                pass
+        seq.status = effective
     return seq
 
 
