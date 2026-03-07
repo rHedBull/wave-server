@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from wave_server.config import settings
 from wave_server.db import async_session
 from wave_server.engine.execution_logger import ExecutionLogger
-from wave_server.engine.log_parser import format_task_log, parse_stream_json
+from wave_server.engine.log_parser import format_task_log, parse_pi_json, parse_stream_json
 from wave_server.engine.plan_parser import parse_plan
 from wave_server.engine.dag import validate_plan
 from wave_server.engine.runner import get_runner
@@ -467,7 +467,10 @@ async def _run_execution(
                     # Write structured task log (human-readable) + collect cost
                     try:
                         prompt = _build_task_prompt(task, spec_content, plan.data_schemas, plan.project_structure, plan.environment)
-                        parsed = parse_stream_json(result.stdout or "")
+                        if execution.runtime == "pi":
+                            parsed = parse_pi_json(result.stdout or "")
+                        else:
+                            parsed = parse_stream_json(result.stdout or "")
                         task_log = format_task_log(
                             task_id=task.id,
                             title=task.title,

@@ -139,6 +139,96 @@ def parse_stream_json(raw: str) -> ParsedLog:
     return log
 
 
+def parse_pi_json(raw: str) -> ParsedLog:
+    """Parse pi's JSON mode JSONL output into a structured log."""
+    log = ParsedLog()
+    total_cost = 0.0
+    total_input = 0
+    total_output = 0
+    total_cache_read = 0
+    total_cache_write = 0
+
+    for line in raw.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get("type", "")
+
+        if event_type == "message_end":
+            message = event.get("message", {})
+            role = message.get("role", "")
+
+            if not log.model and message.get("model"):
+                log.model = message["model"]
+
+            usage = message.get("usage")
+            if usage:
+                total_input += usage.get("input", 0)
+                total_output += usage.get("output", 0)
+                total_cache_read += usage.get("cacheRead", 0)
+                total_cache_write += usage.get("cacheWrite", 0)
+                cost = usage.get("cost", {})
+                total_cost += cost.get("total", 0.0)
+
+            if role == "assistant":
+                turn = AssistantTurn()
+                for block in message.get("content", []):
+                    block_type = block.get("type", "")
+                    if block_type == "text":
+                        text = block.get("text", "")
+                        if text:
+                            turn.text += text
+                    elif block_type == "toolCall":
+                        tc = ToolCall(
+                            name=block.get("name", "unknown"),
+                            input_summary=_summarize_tool_input(
+                                block.get("name", ""), block.get("arguments", {})
+                            ),
+                            tool_use_id=block.get("id", ""),
+                        )
+                        turn.tool_calls.append(tc)
+                if turn.text or turn.tool_calls:
+                    log.turns.append(turn)
+
+            elif role == "toolResult":
+                content_parts = []
+                for block in message.get("content", []):
+                    if block.get("type") == "text":
+                        content_parts.append(block.get("text", ""))
+                tr = ToolResult(
+                    tool_use_id="",
+                    name="",
+                    content="\n".join(content_parts),
+                    is_error=False,
+                )
+                log.turns.append(tr)
+
+        elif event_type == "agent_end":
+            # Extract final text from last assistant message
+            messages = event.get("messages", [])
+            for m in reversed(messages):
+                if m.get("role") == "assistant":
+                    for block in m.get("content", []):
+                        if block.get("type") == "text":
+                            log.final_result = block.get("text", "")
+                            break
+                    break
+            log.num_turns = sum(1 for m in messages if m.get("role") == "assistant")
+
+    log.total_cost_usd = total_cost
+    log.input_tokens = total_input
+    log.output_tokens = total_output
+    log.cache_read_tokens = total_cache_read
+    log.cache_creation_tokens = total_cache_write
+
+    return log
+
+
 def format_task_log(
     *,
     task_id: str,
