@@ -85,25 +85,36 @@ assert isinstance(E2EMockRunner(), AgentRunner)
 
 SIMPLE_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
 
     ## Goal
     Build a simple greeting module.
 
     ## Wave 1: Core Setup
 
-    ### Task 1-1: Create greeting module
+    ### Foundation
+
+    #### Task 1-1: Create greeting module
     - **Agent**: worker
     - **Files**: `src/greet.py`
     - **Depends**: (none)
     - **Description**: Create a Python greeting module with a `hello(name)` function.
 
-    ### Task 1-2: Add tests
+    #### Task 1-2: Add tests
     - **Agent**: test-writer
     - **Files**: `tests/test_greet.py`
     - **Depends**: 1-1
     - **Description**: Write tests for the greeting module.
 
-    ### Task 1-3: Verify
+    #### Task 1-3: Verify
     - **Agent**: wave-verifier
     - **Files**: `src/greet.py`, `tests/test_greet.py`
     - **Depends**: 1-2
@@ -112,6 +123,15 @@ SIMPLE_PLAN = textwrap.dedent("""\
 
 MULTI_WAVE_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
 
     ## Goal
     Build a user auth system.
@@ -175,25 +195,36 @@ MULTI_WAVE_PLAN = textwrap.dedent("""\
 
 FAILING_TASK_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
 
     ## Goal
     A plan where one task fails.
 
     ## Wave 1: Tasks
 
-    ### Task 1-1: Succeeds
+    ### Foundation
+
+    #### Task 1-1: Succeeds
     - **Agent**: worker
     - **Files**: `src/ok.py`
     - **Depends**: (none)
     - **Description**: This task succeeds.
 
-    ### Task 1-2: Fails
+    #### Task 1-2: Fails
     - **Agent**: worker
     - **Files**: `src/fail.py`
     - **Depends**: 1-1
     - **Description**: This task fails.
 
-    ### Task 1-3: Skipped
+    #### Task 1-3: Skipped
     - **Agent**: worker
     - **Files**: `src/skipped.py`
     - **Depends**: 1-2
@@ -739,9 +770,8 @@ class TestE2EEdgeCases:
 
     @pytest.mark.asyncio
     async def test_empty_plan_fails_gracefully(self, e2e_client: AsyncClient, repo_dir: Path):
-        """A plan with no waves should fail (or complete with 0 tasks)."""
+        """A plan without a format version tag should be rejected at preflight."""
         client = e2e_client
-        mock_runner = E2EMockRunner()
 
         empty_plan = "# Implementation Plan\n\n## Goal\nNothing to do.\n"
 
@@ -750,17 +780,10 @@ class TestE2EEdgeCases:
         sequence_id = await _create_sequence(client, project_id)
         await _upload_plan(client, sequence_id, empty_plan)
 
-        with patch(
-            "wave_server.engine.execution_manager.get_runner",
-            return_value=mock_runner,
-        ):
-            execution_id = await _start_execution(client, sequence_id)
-            result = await _poll_execution(client, execution_id)
-
-        # Empty plan → completes with 0 tasks
-        assert result["status"] == "completed"
-        assert result["total_tasks"] == 0
-        assert len(mock_runner.spawned) == 0
+        # Starting execution should fail with 422 — plan has no format version
+        r = await client.post(f"/api/v1/sequences/{sequence_id}/executions", json={})
+        assert r.status_code == 422
+        assert "format version" in r.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_concurrent_executions_same_sequence(

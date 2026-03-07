@@ -1,16 +1,21 @@
-"""Plan Markdown parser — supports both feature-based format and legacy flat format.
+"""Plan Markdown parser — feature-based format v2.
 
-New format:
+Plans must declare their format version via an HTML comment:
+  <!-- format: v2 -->
+
+Supported versions:
+  v2 — feature-based format (current, required)
+
+Expected v2 structure:
+  <!-- format: v2 -->
+  ## Project Structure   (optional — injected into agent prompts)
+  ## Environment         (optional — injected into agent prompts)
+  ## Data Schemas        (optional — injected into agent prompts)
   ## Wave N: <name>
   ### Foundation
   ### Feature: <name>
   ### Integration
   #### Task <id>: <title>
-
-Legacy format (backward compat):
-  ## Wave N: <name>
-  ### Task <id>: <title>
-  -> wraps all tasks in a single "default" feature
 """
 
 from __future__ import annotations
@@ -20,21 +25,37 @@ import re
 from wave_server.engine.types import Feature, Plan, Task, Wave
 
 
+SUPPORTED_VERSIONS = {"v2"}
+CURRENT_VERSION = "v2"
+
+
+def _extract_format_version(markdown: str) -> str | None:
+    """Extract format version from <!-- format: vN --> comment."""
+    m = re.search(r"<!--\s*format:\s*(v\d+)\s*-->", markdown)
+    return m.group(1) if m else None
+
+
 def parse_plan(markdown: str) -> Plan:
     """Parse a plan markdown document into a Plan dataclass.
 
-    Auto-detects new feature-based format vs legacy flat format.
+    Requires a <!-- format: v2 --> version marker. Raises ValueError if
+    the version is missing, unsupported, or the plan uses legacy format.
     """
-    lines = markdown.split("\n")
+    version = _extract_format_version(markdown)
 
-    has_feature_headers = any(
-        re.match(r"^### (Feature:|Foundation|Integration)", line.strip(), re.IGNORECASE)
-        for line in lines
-    )
+    if version is None:
+        raise ValueError(
+            "Plan is missing a format version. "
+            f"Add '<!-- format: {CURRENT_VERSION} -->' near the top of the plan."
+        )
 
-    if has_feature_headers:
-        return _parse_v2(markdown)
-    return _parse_legacy(markdown)
+    if version not in SUPPORTED_VERSIONS:
+        raise ValueError(
+            f"Unsupported plan format '{version}'. "
+            f"Supported versions: {', '.join(sorted(SUPPORTED_VERSIONS))}."
+        )
+
+    return _parse_v2(markdown)
 
 
 def extract_plan_section(markdown: str, section_name: str) -> str:
@@ -322,97 +343,4 @@ def _parse_v2(markdown: str) -> Plan:
     return plan
 
 
-def _parse_legacy(markdown: str) -> Plan:
-    lines = markdown.split("\n")
-    plan = Plan(
-        data_schemas=extract_data_schemas(markdown),
-        project_structure=extract_plan_section(markdown, "Project Structure"),
-        environment=extract_plan_section(markdown, "Environment"),
-    )
 
-    current_wave: Wave | None = None
-    current_task: Task | None = None
-    description_lines: list[str] = []
-    goal_next_line = False
-
-    def flush_task():
-        nonlocal current_task, description_lines
-        if current_task and current_wave:
-            current_task.description = "\n".join(description_lines).strip()
-            if not current_wave.features:
-                current_wave.features.append(Feature(name="default"))
-            current_wave.features[0].tasks.append(current_task)
-        current_task = None
-        description_lines = []
-
-    def flush_wave():
-        nonlocal current_wave
-        flush_task()
-        if current_wave and current_wave.features and any(
-            f.tasks for f in current_wave.features
-        ):
-            plan.waves.append(current_wave)
-        current_wave = None
-
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-
-        # Goal header
-        if re.match(r"^## Goal", line.strip(), re.IGNORECASE):
-            goal_next_line = True
-            i += 1
-            continue
-        if goal_next_line and line.strip():
-            plan.goal = line.strip()
-            goal_next_line = False
-            i += 1
-            continue
-        if goal_next_line and not line.strip():
-            i += 1
-            continue
-
-        # Wave header
-        m = re.match(r"^## Wave \d+:\s*(.+)", line)
-        if m:
-            flush_wave()
-            current_wave = Wave(name=m.group(1).strip())
-            i += 1
-            continue
-
-        # Wave description
-        if (
-            current_wave
-            and not current_wave.features
-            and current_task is None
-            and line.strip()
-            and not line.startswith("#")
-            and not line.startswith("---")
-        ):
-            if not current_wave.description:
-                current_wave.description = line.strip()
-            i += 1
-            continue
-
-        # Task header (### level for legacy)
-        m = re.match(r"^### Task ([\w-]+):\s*(.+)", line)
-        if m:
-            flush_task()
-            current_task = Task(id=m.group(1), title=m.group(2).strip())
-            description_lines = []
-            i += 1
-            i, description_lines = _parse_task_metadata(
-                lines, i, current_task
-            )
-            continue
-
-        i += 1
-
-    flush_wave()
-
-    if not plan.goal:
-        m = re.search(r"^# Implementation Plan\s*\n+(.+)", markdown, re.MULTILINE)
-        if m:
-            plan.goal = m.group(1).strip()
-
-    return plan

@@ -10,10 +10,22 @@ from httpx import AsyncClient
 
 MINIMAL_PLAN = """\
 # Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Wave 1: Setup
 
-### Task 1a: Do something
+
+### Foundation
+
+#### Task 1a: Do something
 - **Agent**: worker
 - **Files**: `src/index.ts`
 - **Depends**: (none)
@@ -22,10 +34,22 @@ MINIMAL_PLAN = """\
 
 INVALID_PLAN = """\
 # Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Wave 1: Setup
 
-### Task 1a: Bad deps
+
+### Foundation
+
+#### Task 1a: Bad deps
 - **Agent**: worker
 - **Files**: `src/index.ts`
 - **Depends**: 9z

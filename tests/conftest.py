@@ -18,10 +18,22 @@ from wave_server.main import app
 # Minimal valid plan used by tests that need a launchable sequence
 MINIMAL_PLAN = """\
 # Plan
+<!-- format: v2 -->
+
+## Project Structure
+```
+src/
+  index.ts
+```
+
+## Data Schemas
+No schemas.
 
 ## Wave 1: Setup
 
-### Task 1a: Do something
+### Foundation
+
+#### Task 1a: Do something
 - **Agent**: worker
 - **Files**: `src/index.ts`
 - **Depends**: (none)

@@ -114,17 +114,25 @@ def _task(
 
 
 def _simple_plan_md(num_waves: int = 1, tasks_per_wave: int = 1) -> str:
-    """Generate a simple valid plan markdown."""
-    lines = ["# Implementation Plan", "", "## Goal", "Test goal", ""]
+    """Generate a simple valid plan markdown (v2 format)."""
+    lines = [
+        "# Implementation Plan", "<!-- format: v2 -->", "",
+        "## Project Structure", "```", "src/", "```", "",
+        "## Data Schemas", "No schemas.", "",
+        "## Goal", "Test goal", "",
+    ]
     task_counter = 0
     for w in range(1, num_waves + 1):
         lines.append(f"## Wave {w}: Wave{w}")
+        lines.append("")
+        lines.append("### Foundation")
+        lines.append("")
         for t in range(1, tasks_per_wave + 1):
             task_counter += 1
             tid = f"{w}-{t}"
             dep = f"- **Depends:** {w}-{t-1}" if t > 1 else "- **Depends:** (none)"
             lines.extend([
-                f"### Task {tid}: Task {tid}",
+                f"#### Task {tid}: Task {tid}",
                 f"- **Files:** `file{task_counter}.py`",
                 dep,
                 f"- **Description:** Do task {tid}",
@@ -920,20 +928,21 @@ class TestPlanParsing:
         assert len(plan.waves) == 2
         assert plan.goal == "Test goal"
         for wave in plan.waves:
-            assert len(wave.features) == 1
-            assert len(wave.features[0].tasks) == 2
+            assert len(wave.foundation) == 2
 
-    def test_empty_plan_no_waves(self):
+    def test_empty_plan_raises_missing_version(self):
+        import pytest
         from wave_server.engine.plan_parser import parse_plan
 
-        plan = parse_plan("# Empty Plan\n\nNothing here.")
-        assert len(plan.waves) == 0
+        with pytest.raises(ValueError, match="missing a format version"):
+            parse_plan("# Empty Plan\n\nNothing here.")
 
-    def test_plan_with_bad_format_no_tasks(self):
+    def test_plan_with_bad_format_raises_missing_version(self):
+        import pytest
         from wave_server.engine.plan_parser import parse_plan
 
-        plan = parse_plan("## Wave 1 — Bad Format\n### Not a task header")
-        assert len(plan.waves) == 0
+        with pytest.raises(ValueError, match="missing a format version"):
+            parse_plan("## Wave 1 — Bad Format\n### Not a task header")
 
 
 # ── DAG Dependency Validation ─────────────────────────────────
@@ -942,10 +951,13 @@ class TestPlanParsing:
 class TestDAGInExecution:
     """Test DAG validation as it affects execution."""
 
+    _REQ = {"project_structure": "src/", "data_schemas": "No schemas."}
+
     def test_valid_deps_pass(self):
         from wave_server.engine.dag import validate_plan
 
         plan = Plan(
+            **self._REQ,
             waves=[
                 Wave(
                     name="W1",
@@ -966,6 +978,7 @@ class TestDAGInExecution:
         from wave_server.engine.dag import validate_plan
 
         plan = Plan(
+            **self._REQ,
             waves=[
                 Wave(
                     name="W1",
@@ -985,6 +998,7 @@ class TestDAGInExecution:
         from wave_server.engine.dag import validate_plan
 
         plan = Plan(
+            **self._REQ,
             waves=[
                 Wave(
                     name="W1",
