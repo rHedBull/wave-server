@@ -271,11 +271,11 @@ export default function SequenceDetailPage({
                       id: "branch",
                       header: "Branch",
                       cell: (item) => (
-                        <SpaceBetween direction="horizontal" size="xxs">
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           {item.work_branch ? (
                             <code style={{ fontSize: "0.85em" }}>{item.work_branch}</code>
                           ) : (
-                            "—"
+                            <span>—</span>
                           )}
                           {item.pr_url && (
                             <a
@@ -288,7 +288,7 @@ export default function SequenceDetailPage({
                               PR
                             </a>
                           )}
-                        </SpaceBetween>
+                        </div>
                       ),
                       width: 200,
                     },

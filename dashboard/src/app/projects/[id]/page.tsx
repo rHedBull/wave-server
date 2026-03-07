@@ -18,8 +18,23 @@ import CopyableId from "@/components/CopyableId";
 import { usePolling } from "@/hooks/usePolling";
 import { api, type Project, type Sequence } from "@/lib/api";
 
-function statusType(status: string) {
+/** Normalise legacy status values from before the vocabulary unification. */
+function normalizeStatus(status: string): string {
   switch (status) {
+    case "executing":
+      return "running";
+    case "drafting":
+      return "pending";
+    case "queued":
+      return "pending";
+    default:
+      return status;
+  }
+}
+
+function statusType(status: string) {
+  const s = normalizeStatus(status);
+  switch (s) {
     case "completed":
       return "success";
     case "failed":
@@ -129,7 +144,7 @@ export default function ProjectDetailPage({
                 header: "Status",
                 content: (item) => (
                   <StatusIndicator type={statusType(item.status)}>
-                    {item.status}
+                    {normalizeStatus(item.status)}
                   </StatusIndicator>
                 ),
               },
