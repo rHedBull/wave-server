@@ -210,6 +210,24 @@ class TestParallelFoundationTasks:
 
     PARALLEL_FOUNDATION_PLAN = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Test parallel foundation
@@ -360,32 +378,59 @@ class TestWaveTransitions:
 
     THREE_WAVE_PLAN = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Test wave transitions
 
 ## Wave 1: Foundation
 
-### Task 1-1: Setup
+
+### Foundation
+
+#### Task 1-1: Setup
 - **Files**: `setup.py`
 - **Depends**: (none)
 - **Description**: Initial setup
 
 ## Wave 2: Core
 
-### Task 2-1: Core A
+
+### Foundation
+
+#### Task 2-1: Core A
 - **Files**: `core_a.py`
 - **Depends**: (none)
 - **Description**: Core feature A
 
-### Task 2-2: Core B
+#### Task 2-2: Core B
 - **Files**: `core_b.py`
 - **Depends**: (none)
 - **Description**: Core feature B
 
 ## Wave 3: Finish
 
-### Task 3-1: Polish
+
+### Foundation
+
+#### Task 3-1: Polish
 - **Files**: `polish.py`
 - **Depends**: (none)
 - **Description**: Polish everything
@@ -498,30 +543,54 @@ Test wave transitions
         """Wave 1 (serial) → Wave 2 (parallel) transition should work cleanly."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Serial to parallel wave transition
 
 ## Wave 1: Setup
 
-### Task 1-1: Init
+
+### Foundation
+
+#### Task 1-1: Init
 - **Files**: `init.py`
 - **Depends**: (none)
 - **Description**: Init
 
 ## Wave 2: Build
 
-### Task 2-1: Build A
+
+### Foundation
+
+#### Task 2-1: Build A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: Build A
 
-### Task 2-2: Build B
+#### Task 2-2: Build B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: Build B
 
-### Task 2-3: Build C
+#### Task 2-3: Build C
 - **Files**: `c.py`
 - **Depends**: (none)
 - **Description**: Build C
@@ -553,6 +622,24 @@ class TestParallelFeatures:
 
     MULTI_FEATURE_PLAN = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Test parallel features
@@ -740,18 +827,39 @@ class TestEventOrderingUnderConcurrency:
         """run_started must be first, run_completed must be last."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Event ordering test
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: B
+#### Task 1-2: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
@@ -778,23 +886,44 @@ Event ordering test
         """For each task, started must come before completed."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Ordering
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: B
+#### Task 1-2: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
 
-### Task 1-3: C
+#### Task 1-3: C
 - **Files**: `c.py`
 - **Depends**: (none)
 - **Description**: C
@@ -830,20 +959,44 @@ Ordering
         """phase_changed for a wave should come before that wave's tasks."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Phase ordering
 
 ## Wave 1: First
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
 ## Wave 2: Second
 
-### Task 2-1: B
+
+### Foundation
+
+#### Task 2-1: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
@@ -879,18 +1032,39 @@ Phase ordering
         """wave_completed should come after all task events for that wave."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Wave completion ordering
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: B
+#### Task 1-2: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
@@ -932,33 +1106,54 @@ class TestTaskCountAccuracy:
         """completed_tasks should equal actual completions, no off-by-one errors."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Count test
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: B
+#### Task 1-2: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
 
-### Task 1-3: C
+#### Task 1-3: C
 - **Files**: `c.py`
 - **Depends**: (none)
 - **Description**: C
 
-### Task 1-4: D
+#### Task 1-4: D
 - **Files**: `d.py`
 - **Depends**: (none)
 - **Description**: D
 
-### Task 1-5: E
+#### Task 1-5: E
 - **Files**: `e.py`
 - **Depends**: (none)
 - **Description**: E
@@ -988,6 +1183,24 @@ Count test
         """
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Mixed count
@@ -1033,32 +1246,59 @@ Mixed count
         """total_tasks should count tasks across all waves."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Multi-wave count
 
 ## Wave 1: A
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
 ## Wave 2: B
 
-### Task 2-1: B
+
+### Foundation
+
+#### Task 2-1: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
 
-### Task 2-2: C
+#### Task 2-2: C
 - **Files**: `c.py`
 - **Depends**: (none)
 - **Description**: C
 
 ## Wave 3: D
 
-### Task 3-1: D
+
+### Foundation
+
+#### Task 3-1: D
 - **Files**: `d.py`
 - **Depends**: (none)
 - **Description**: D
@@ -1129,6 +1369,24 @@ class TestComplexScenarios:
         """Two waves each with foundation + features."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Complex multi-wave
@@ -1196,6 +1454,24 @@ Files: `profile.py`
         """Foundation failure in wave 1 → no features, no wave 2."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Foundation failure cascade
@@ -1220,7 +1496,10 @@ Files: `auth.py`
 
 ## Wave 2: Tests
 
-### Task 2-1: Run tests
+
+### Foundation
+
+#### Task 2-1: Run tests
 - **Files**: `test.py`
 - **Depends**: (none)
 - **Description**: Tests
@@ -1254,10 +1533,10 @@ class TestStressConcurrency:
     async def test_eight_parallel_tasks(self, test_db, _mock_storage, tmp_path):
         """8 independent tasks running in parallel."""
         tasks = "\n".join(
-            f"### Task 1-{i}: Task{i}\n- **Files**: `f{i}.py`\n- **Depends**: (none)\n- **Description**: Task {i}\n"
+            f"#### Task 1-{i}: Task{i}\n- **Files**: `f{i}.py`\n- **Depends**: (none)\n- **Description**: Task {i}\n"
             for i in range(1, 9)
         )
-        plan = f"# Implementation Plan\n\n## Goal\nStress test\n\n## Wave 1: Parallel\n\n{tasks}"
+        plan = f"# Implementation Plan\n<!-- format: v2 -->\n\n## Project Structure\n```\nsrc/\n```\n\n## Data Schemas\nNo schemas.\n\n## Goal\nStress test\n\n## Wave 1: Parallel\n\n### Foundation\n\n{tasks}"
         _mock_storage.read_plan.return_value = plan
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -1280,10 +1559,10 @@ class TestStressConcurrency:
     async def test_ten_parallel_instant_tasks(self, test_db, _mock_storage, tmp_path):
         """10 tasks completing instantly — maximum DB write contention."""
         tasks = "\n".join(
-            f"### Task 1-{i}: Task{i}\n- **Files**: `f{i}.py`\n- **Depends**: (none)\n- **Description**: Task {i}\n"
+            f"#### Task 1-{i}: Task{i}\n- **Files**: `f{i}.py`\n- **Depends**: (none)\n- **Description**: Task {i}\n"
             for i in range(1, 11)
         )
-        plan = f"# Implementation Plan\n\n## Goal\nInstant stress\n\n## Wave 1: Instant\n\n{tasks}"
+        plan = f"# Implementation Plan\n<!-- format: v2 -->\n\n## Project Structure\n```\nsrc/\n```\n\n## Data Schemas\nNo schemas.\n\n## Goal\nInstant stress\n\n## Wave 1: Instant\n\n### Foundation\n\n{tasks}"
         _mock_storage.read_plan.return_value = plan
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -1307,13 +1586,13 @@ class TestStressConcurrency:
         for w in range(1, 4):
             task_count = w + 1  # 2, 3, 4 tasks per wave
             tasks = "\n".join(
-                f"### Task {w}-{t}: W{w}T{t}\n- **Files**: `w{w}t{t}.py`\n- **Depends**: (none)\n- **Description**: W{w}T{t}\n"
+                f"#### Task {w}-{t}: W{w}T{t}\n- **Files**: `w{w}t{t}.py`\n- **Depends**: (none)\n- **Description**: W{w}T{t}\n"
                 for t in range(1, task_count + 1)
             )
-            waves_md.append(f"## Wave {w}: Wave{w}\n\n{tasks}")
+            waves_md.append(f"## Wave {w}: Wave{w}\n\n### Foundation\n\n{tasks}")
             total += task_count
 
-        plan = "# Implementation Plan\n\n## Goal\nMulti-wave stress\n\n" + "\n".join(waves_md)
+        plan = "# Implementation Plan\n<!-- format: v2 -->\n\n## Project Structure\n```\nsrc/\n```\n\n## Data Schemas\nNo schemas.\n\n## Goal\nMulti-wave stress\n\n" + "\n".join(waves_md)
         _mock_storage.read_plan.return_value = plan
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -1456,23 +1735,44 @@ class TestStorageUnderConcurrency:
         """Each parallel task should get its output saved."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Storage test
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: B
+#### Task 1-2: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
 
-### Task 1-3: C
+#### Task 1-3: C
 - **Files**: `c.py`
 - **Depends**: (none)
 - **Description**: C
@@ -1504,18 +1804,39 @@ Storage test
         """Execution log should be flushed after each task completes."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Log flush test
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: B
+#### Task 1-2: B
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: B
@@ -1549,13 +1870,34 @@ class TestEdgeCases:
         """Minimal plan: 1 wave, 1 task."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Minimal
 
 ## Wave 1: Only
 
-### Task 1-1: Only task
+
+### Foundation
+
+#### Task 1-1: Only task
 - **Files**: `only.py`
 - **Depends**: (none)
 - **Description**: The only task
@@ -1581,6 +1923,24 @@ Minimal
         """All parallel foundation tasks fail."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 All fail
@@ -1646,18 +2006,39 @@ All fail
         """If the runner throws during a parallel task, execution should fail gracefully."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Exception handling
 
 ## Wave 1: Work
 
-### Task 1-1: Normal
+
+### Foundation
+
+#### Task 1-1: Normal
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: Normal
 
-### Task 1-2: Explode
+#### Task 1-2: Explode
 - **Files**: `b.py`
 - **Depends**: (none)
 - **Description**: Will throw
@@ -1703,13 +2084,34 @@ Exception handling
         """Git SHA should be captured before and after execution."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Git SHA
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
@@ -1734,13 +2136,34 @@ Git SHA
         """finished_at should be set when execution completes."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Timestamps
 
 ## Wave 1: Work
 
-### Task 1-1: A
+
+### Foundation
+
+#### Task 1-1: A
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: A
@@ -1766,13 +2189,34 @@ Timestamps
         """finished_at should be set even when execution fails."""
         plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Failure timestamps
 
 ## Wave 1: Work
 
-### Task 1-1: Fail
+
+### Foundation
+
+#### Task 1-1: Fail
 - **Files**: `a.py`
 - **Depends**: (none)
 - **Description**: Will fail

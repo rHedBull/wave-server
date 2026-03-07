@@ -58,13 +58,25 @@ POLL_INTERVAL_S = 2.0  # Check every 2 seconds
 
 SIMPLE_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
+
 
     ## Goal
     Create a Python math utilities module with tests.
 
     ## Wave 1: Core
 
-    ### Task 1-1: Create math utilities
+    ### Foundation
+
+    #### Task 1-1: Create math utilities
     - **Agent**: worker
     - **Files**: `lib/math_utils.py`
     - **Depends**: (none)
@@ -74,7 +86,7 @@ SIMPLE_PLAN = textwrap.dedent("""\
       - `factorial(n: int) -> int` — returns n! (raise ValueError for n < 0)
       Create the `lib/` directory and an `__init__.py` if needed.
 
-    ### Task 1-2: Write tests
+    #### Task 1-2: Write tests
     - **Agent**: test-writer
     - **Files**: `tests/test_math_utils.py`
     - **Depends**: 1-1
@@ -88,6 +100,16 @@ SIMPLE_PLAN = textwrap.dedent("""\
 
 MULTI_AGENT_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
+
 
     ## Goal
     Create a string utilities module, test it, and verify.
@@ -135,6 +157,16 @@ MULTI_AGENT_PLAN = textwrap.dedent("""\
 
 CAPABILITY_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
+
 
     ## Goal
     Scaffold a project, build a data pipeline, and fix broken utilities.
@@ -452,13 +484,25 @@ SERVER_PY = textwrap.dedent('''\
 
 PROCESS_MGMT_PLAN = textwrap.dedent("""\
     # Implementation Plan
+    <!-- format: v2 -->
+
+    ## Project Structure
+    ```
+    src/
+    ```
+
+    ## Data Schemas
+    No schemas.
+
 
     ## Goal
     Test server process lifecycle management.
 
     ## Wave 1: Process Management
 
-    ### Task srv-start: Start and test the server
+    ### Foundation
+
+    #### Task srv-start: Start and test the server
     - **Agent**: worker
     - **Files**: `results/server_test.json`
     - **Depends**: (none)
@@ -516,7 +560,7 @@ PROCESS_MGMT_PLAN = textwrap.dedent("""\
 
       Create the `results/` directory if it doesn't exist.
 
-    ### Task srv-verify: Verify results and cleanup
+    #### Task srv-verify: Verify results and cleanup
     - **Agent**: wave-verifier
     - **Files**: `results/server_test.json`
     - **Depends**: srv-start

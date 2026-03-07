@@ -38,7 +38,10 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
     plan_content = storage.read_plan(sequence_id)
     if not plan_content:
         raise HTTPException(422, "No plan found for this sequence. Upload one first.")
-    plan = parse_plan(plan_content)
+    try:
+        plan = parse_plan(plan_content)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     valid, errors = validate_plan(plan)
     if not valid:
         raise HTTPException(422, f"Plan validation failed: {'; '.join(errors)}")

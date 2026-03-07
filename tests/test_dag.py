@@ -74,8 +74,11 @@ def test_build_dag_parallel():
 # ── validate_plan ──────────────────────────────────────────────
 
 
+_REQUIRED = {"project_structure": "## Project Structure\nsrc/", "data_schemas": "## Data Schemas\nplaceholder"}
+
+
 def test_validate_plan_valid():
-    plan = Plan(waves=[
+    plan = Plan(**_REQUIRED, waves=[
         Wave(
             name="W1",
             foundation=[_task("f1")],
@@ -89,7 +92,7 @@ def test_validate_plan_valid():
 
 
 def test_validate_plan_cross_section_dep():
-    plan = Plan(waves=[
+    plan = Plan(**_REQUIRED, waves=[
         Wave(
             name="W1",
             foundation=[_task("f1")],
@@ -103,7 +106,7 @@ def test_validate_plan_cross_section_dep():
 
 
 def test_validate_plan_duplicate_ids():
-    plan = Plan(waves=[
+    plan = Plan(**_REQUIRED, waves=[
         Wave(
             name="W1",
             foundation=[_task("dup")],
@@ -117,7 +120,7 @@ def test_validate_plan_duplicate_ids():
 
 
 def test_validate_plan_file_overlap():
-    plan = Plan(waves=[
+    plan = Plan(**_REQUIRED, waves=[
         Wave(
             name="W1",
             foundation=[],
@@ -131,6 +134,16 @@ def test_validate_plan_file_overlap():
     valid, errors = validate_plan(plan)
     assert not valid
     assert any("shared.py" in e for e in errors)
+
+
+def test_validate_plan_missing_required_sections():
+    plan = Plan(waves=[
+        Wave(name="W1", foundation=[_task("t1")])
+    ])
+    valid, errors = validate_plan(plan)
+    assert not valid
+    assert any("Project Structure" in e for e in errors)
+    assert any("Data Schemas" in e for e in errors)
 
 
 # ── map_concurrent ─────────────────────────────────────────────

@@ -37,18 +37,30 @@ from wave_server.models import (
 
 SIMPLE_PLAN = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Test execution
 
 ## Wave 1: Core
 
-### Task 1-1: First task
+
+### Foundation
+
+#### Task 1-1: First task
 - **File**: `a.py`
 - **Depends**: (none)
 - **Description**: Do the first thing
 
-### Task 1-2: Second task
+#### Task 1-2: Second task
 - **File**: `b.py`
 - **Depends**: 1-1
 - **Description**: Do the second thing
@@ -56,20 +68,35 @@ Test execution
 
 TWO_WAVE_PLAN = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Multi-wave test
 
 ## Wave 1: Setup
 
-### Task 1-1: Setup task
+
+### Foundation
+
+#### Task 1-1: Setup task
 - **File**: `setup.py`
 - **Depends**: (none)
 - **Description**: Set things up
 
 ## Wave 2: Build
 
-### Task 2-1: Build task
+
+### Foundation
+
+#### Task 2-1: Build task
 - **File**: `build.py`
 - **Depends**: (none)
 - **Description**: Build things
@@ -77,13 +104,25 @@ Multi-wave test
 
 INVALID_PLAN = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Bad plan
 
 ## Wave 1: Bad
 
-### Task 1-1: Depends on ghost
+
+### Foundation
+
+#### Task 1-1: Depends on ghost
 - **File**: `a.py`
 - **Depends**: nonexistent
 - **Description**: This will fail validation
@@ -683,28 +722,40 @@ class TestSessionConcurrency:
         """
         many_tasks_plan = """\
 # Implementation Plan
+<!-- format: v2 -->
+## Project Structure
+```
+src/
+```
+
+## Data Schemas
+No schemas.
+
 
 ## Goal
 Stress test concurrent events
 
 ## Wave 1: Parallel
 
-### Task 1-1: Task A
+
+### Foundation
+
+#### Task 1-1: Task A
 - **File**: `a.py`
 - **Depends**: (none)
 - **Description**: A
 
-### Task 1-2: Task B
+#### Task 1-2: Task B
 - **File**: `b.py`
 - **Depends**: (none)
 - **Description**: B
 
-### Task 1-3: Task C
+#### Task 1-3: Task C
 - **File**: `c.py`
 - **Depends**: (none)
 - **Description**: C
 
-### Task 1-4: Task D
+#### Task 1-4: Task D
 - **File**: `d.py`
 - **Depends**: (none)
 - **Description**: D

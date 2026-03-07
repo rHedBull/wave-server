@@ -140,6 +140,20 @@ def validate_plan(plan: Plan) -> tuple[bool, list[str]]:
                     f"Move shared files to Foundation or split into separate waves."
                 )
 
+    # v2 required sections — these drive token optimization
+    if not plan.project_structure:
+        errors.append(
+            "Missing '## Project Structure' section. "
+            "This section is required — it gives agents the file layout so they don't waste tokens exploring."
+        )
+    if not plan.data_schemas:
+        errors.append(
+            "Missing '## Data Schemas' section. "
+            "This section is required — it gives agents authoritative type/model names."
+        )
+    if not plan.waves:
+        errors.append("No waves found in plan.")
+
     return len(errors) == 0, errors
 
 

@@ -1,7 +1,9 @@
+import pytest
 from wave_server.engine.plan_parser import parse_plan, extract_data_schemas
 
 
 SAMPLE_PLAN_V2 = """# Implementation Plan
+<!-- format: v2 -->
 
 ## Goal
 
@@ -155,24 +157,46 @@ def test_parse_v2_integration():
     assert wave.integration[0].agent == "wave-verifier"
 
 
-def test_parse_legacy():
-    plan = parse_plan(SAMPLE_PLAN_LEGACY)
+def test_parse_legacy_raises_error():
+    """Legacy format plans (even with a version tag) should fail if no Foundation/Feature sections."""
+    with pytest.raises(ValueError, match="missing a format version"):
+        parse_plan(SAMPLE_PLAN_LEGACY)
+
+
+def test_parse_legacy_with_version_tag():
+    """Legacy format with v2 tag should parse (tasks end up in v2 parser but no sections found)."""
+    tagged = "<!-- format: v2 -->\n" + SAMPLE_PLAN_LEGACY
+    # v2 parser runs but finds no Foundation/Feature/Integration sections,
+    # so no tasks get placed — plan parses but has empty waves
+    plan = parse_plan(tagged)
     assert plan.goal == "Build a simple CLI tool"
-    assert len(plan.waves) == 1
 
-    wave = plan.waves[0]
-    assert wave.name == "Core"
-    assert len(wave.features) == 1
-    assert wave.features[0].name == "default"
-    assert len(wave.features[0].tasks) == 3
 
-    t1 = wave.features[0].tasks[0]
-    assert t1.id == "w1-t1"
-    assert t1.agent == "worker"
-    assert "src/main.py" in t1.files
+def test_missing_version_raises_error():
+    plan_no_version = """# Implementation Plan
 
-    t2 = wave.features[0].tasks[1]
-    assert t2.depends == ["w1-t1"]
+## Goal
+Do something
+
+### Foundation
+
+#### Task t1: Do thing
+- **Agent**: worker
+- **Description**: Do the thing
+"""
+    with pytest.raises(ValueError, match="missing a format version"):
+        parse_plan(plan_no_version)
+
+
+def test_unsupported_version_raises_error():
+    plan_bad_version = """# Implementation Plan
+<!-- format: v99 -->
+
+## Goal
+Do something
+"""
+    with pytest.raises(ValueError, match="Unsupported plan format 'v99'"):
+        parse_plan(plan_bad_version)
 
 
 def test_parse_task_description():
