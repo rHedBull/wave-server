@@ -38,6 +38,8 @@ class Wave:
 class Plan:
     goal: str = ""
     data_schemas: str = ""
+    project_structure: str = ""
+    environment: str = ""
     waves: list[Wave] = field(default_factory=list)
 
 

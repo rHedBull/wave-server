@@ -424,7 +424,7 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                         storage.write_transcript(execution_id, task.id, header + result.stdout)
                     # Write structured task log (human-readable) + collect cost
                     try:
-                        prompt = _build_task_prompt(task, spec_content, plan.data_schemas)
+                        prompt = _build_task_prompt(task, spec_content, plan.data_schemas, plan.project_structure, plan.environment)
                         parsed = parse_stream_json(result.stdout or "")
                         task_log = format_task_log(
                             task_id=task.id,
@@ -478,6 +478,8 @@ async def _run_execution(execution_id: str, sequence_id: str) -> None:
                     runner=runner,
                     spec_content=spec_content,
                     data_schemas=plan.data_schemas,
+                    project_structure=plan.project_structure,
+                    environment=plan.environment,
                     project_context=project_context,
                     cwd=repo_cwd,
                     env=project_env or None,

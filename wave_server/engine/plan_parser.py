@@ -37,6 +37,33 @@ def parse_plan(markdown: str) -> Plan:
     return _parse_legacy(markdown)
 
 
+def extract_plan_section(markdown: str, section_name: str) -> str:
+    """Extract a named ## section from plan markdown.
+
+    Returns the full content between `## <section_name>` and the next `## ` heading
+    (or `---` separator). Returns empty string if not found.
+    """
+    lines = markdown.split("\n")
+    capturing = False
+    captured: list[str] = []
+    header_pattern = re.compile(rf"^## {re.escape(section_name)}", re.IGNORECASE)
+
+    for line in lines:
+        if header_pattern.match(line.strip()):
+            capturing = True
+            captured.append(line)
+            continue
+
+        if capturing:
+            if re.match(r"^## (?!#)", line) and not header_pattern.match(line):
+                break
+            if line.strip() == "---":
+                break
+            captured.append(line)
+
+    return "\n".join(captured).strip()
+
+
 def extract_data_schemas(markdown: str) -> str:
     """Extract the ## Data Schemas section from plan markdown."""
     lines = markdown.split("\n")
@@ -149,7 +176,11 @@ def _parse_task_metadata(
 
 def _parse_v2(markdown: str) -> Plan:
     lines = markdown.split("\n")
-    plan = Plan(data_schemas=extract_data_schemas(markdown))
+    plan = Plan(
+        data_schemas=extract_data_schemas(markdown),
+        project_structure=extract_plan_section(markdown, "Project Structure"),
+        environment=extract_plan_section(markdown, "Environment"),
+    )
 
     current_wave: Wave | None = None
     current_section: str | None = None  # "foundation" | "feature" | "integration"
@@ -293,7 +324,11 @@ def _parse_v2(markdown: str) -> Plan:
 
 def _parse_legacy(markdown: str) -> Plan:
     lines = markdown.split("\n")
-    plan = Plan(data_schemas=extract_data_schemas(markdown))
+    plan = Plan(
+        data_schemas=extract_data_schemas(markdown),
+        project_structure=extract_plan_section(markdown, "Project Structure"),
+        environment=extract_plan_section(markdown, "Environment"),
+    )
 
     current_wave: Wave | None = None
     current_task: Task | None = None
