@@ -51,7 +51,7 @@ done
 
 # Open dashboard in default browser
 if command -v xdg-open &>/dev/null; then
-    xdg-open http://localhost:3000 &
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
 fi
 
 echo "Wave Server running. Press Ctrl+C to stop."

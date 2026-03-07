@@ -48,6 +48,8 @@ async def execute_feature(
     runner: AgentRunner,
     spec_content: str = "",
     data_schemas: str = "",
+    project_structure: str = "",
+    environment: str = "",
     project_context: str = "",
     cwd: str = ".",
     max_concurrency: int = 4,
@@ -140,7 +142,7 @@ async def execute_feature(
 
             from wave_server.engine.wave_executor import _build_task_prompt
 
-            prompt = _build_task_prompt(task, spec_content, data_schemas, project_context)
+            prompt = _build_task_prompt(task, spec_content, data_schemas, project_structure, environment, project_context)
 
             # Add worktree context to prompt
             if feature_worktree is not None:

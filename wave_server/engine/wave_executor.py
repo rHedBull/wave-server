@@ -45,6 +45,8 @@ class WaveExecutorOptions:
     runner: AgentRunner
     spec_content: str = ""
     data_schemas: str = ""
+    project_structure: str = ""
+    environment: str = ""
     project_context: str = ""
     cwd: str = "."
     env: dict[str, str] | None = None
@@ -103,7 +105,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         start = time.monotonic()
 
         # Build prompt for the agent
-        prompt = _build_task_prompt(task, opts.spec_content, opts.data_schemas, opts.project_context)
+        prompt = _build_task_prompt(task, opts.spec_content, opts.data_schemas, opts.project_structure, opts.environment, opts.project_context)
 
         from wave_server.engine.types import RunnerConfig
 
@@ -226,6 +228,8 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 runner=opts.runner,
                 spec_content=opts.spec_content,
                 data_schemas=opts.data_schemas,
+                project_structure=opts.project_structure,
+                environment=opts.environment,
                 project_context=opts.project_context,
                 cwd=opts.cwd,
                 max_concurrency=per_feature_concurrency,
@@ -325,14 +329,17 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     )
 
 
-def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project_context: str = "") -> str:
+def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project_structure: str = "", environment: str = "", project_context: str = "") -> str:
     """Build the prompt sent to the agent subprocess."""
     schemas_block = (
         f"\n## Data Schemas (authoritative — use these exact names)\n{data_schemas}\n"
         if data_schemas
         else ""
     )
-    context_block = f"\n{project_context}\n" if project_context else ""
+    structure_block = f"\n## Project Structure\n{project_structure}\n" if project_structure else ""
+    env_block = f"\n## Environment\n{environment}\n" if environment else ""
+    legacy_ctx = f"\n{project_context}\n" if project_context else ""
+    context_block = f"{structure_block}{env_block}{legacy_ctx}"
 
     if task.agent == "wave-verifier":
         return f"""You are verifying completed work.
@@ -348,7 +355,8 @@ IMPORTANT — verify in this order:
 2. Syntax/compilation — run the compiler/linter
 3. Tests — run the test suite
 4. Completeness — verify implementation matches task descriptions
-- Do NOT modify any files"""
+- Do NOT modify any files
+- Work continuously — do NOT stop to summarize progress or wait for feedback"""
     elif task.agent == "test-writer":
         return f"""You are writing tests.
 {schemas_block}{context_block}
@@ -361,7 +369,8 @@ Files: {', '.join(task.files)}
 IMPORTANT:
 - Only create/modify TEST files listed for this task
 - Follow existing test patterns
-- Use exact names from Data Schemas above"""
+- Use exact names from Data Schemas above
+- Work continuously — do NOT stop to summarize progress or wait for feedback"""
     else:
         test_context = (
             f"\nTests to satisfy: {', '.join(task.test_files)}\nYour implementation MUST make these tests pass."
@@ -379,4 +388,5 @@ Files: {', '.join(task.files)}{test_context}
 IMPORTANT:
 - Only modify files listed for this task
 - Follow the spec requirements exactly
-- Use exact names from Data Schemas above"""
+- Use exact names from Data Schemas above
+- Work continuously — do NOT stop to summarize progress or wait for feedback"""
