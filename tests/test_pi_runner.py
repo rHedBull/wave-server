@@ -242,15 +242,20 @@ class TestGetRunnerPi:
 # ── PiRunner.spawn() — subprocess tests ───────────────────────
 
 
+PI_BIN = "/usr/local/bin/pi"  # Fake absolute path for tests
+
+
 class TestPiRunnerSpawn:
-    """Tests for PiRunner.spawn() with mocked subprocess."""
+    """Tests for PiRunner.spawn() with mocked subprocess.
+
+    All tests mock shutil.which to return a known absolute path,
+    since the real implementation resolves pi's path at spawn time.
+    """
 
     @pytest.mark.asyncio
-    async def test_command_construction_without_model(self):
-        """Verify the exact CLI flags passed to pi."""
-        config = RunnerConfig(
-            task_id="t1", prompt="Do something", cwd="/tmp"
-        )
+    async def test_command_uses_absolute_path_from_which(self):
+        """spawn() should use the absolute path from shutil.which, not bare 'pi'."""
+        config = RunnerConfig(task_id="t1", prompt="Do something", cwd="/tmp")
         captured_cmd = []
 
         async def fake_exec(*args, **kwargs):
@@ -261,11 +266,36 @@ class TestPiRunnerSpawn:
             proc.kill = MagicMock()
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             await runner.spawn(config)
 
-        assert captured_cmd[0] == "pi"
+        assert captured_cmd[0] == PI_BIN
+
+    @pytest.mark.asyncio
+    async def test_command_construction_without_model(self):
+        """Verify the exact CLI flags passed to pi."""
+        config = RunnerConfig(task_id="t1", prompt="Do something", cwd="/tmp")
+        captured_cmd = []
+
+        async def fake_exec(*args, **kwargs):
+            captured_cmd.extend(args)
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"output", b""))
+            proc.returncode = 0
+            proc.kill = MagicMock()
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            await runner.spawn(config)
+
         assert "--print" in captured_cmd
         assert "--mode" in captured_cmd
         idx = captured_cmd.index("--mode")
@@ -299,7 +329,10 @@ class TestPiRunnerSpawn:
             proc.kill = MagicMock()
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             await runner.spawn(config)
 
@@ -311,7 +344,7 @@ class TestPiRunnerSpawn:
 
     @pytest.mark.asyncio
     async def test_env_merging(self):
-        """config.env should be merged with os.environ."""
+        """config.env vars are merged into the subprocess environment."""
         config = RunnerConfig(
             task_id="t1", prompt="x", cwd="/tmp",
             env={"MY_VAR": "hello", "OTHER": "world"},
@@ -326,7 +359,10 @@ class TestPiRunnerSpawn:
             proc.kill = MagicMock()
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             await runner.spawn(config)
 
@@ -337,8 +373,8 @@ class TestPiRunnerSpawn:
         assert "PATH" in env
 
     @pytest.mark.asyncio
-    async def test_no_env_passes_none(self):
-        """When config.env is None, spawn_env should be None (inherit)."""
+    async def test_no_env_still_inherits_os_environ(self):
+        """Even without config.env, spawn_env includes os.environ (for PATH injection)."""
         config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
         captured_kwargs = {}
 
@@ -350,11 +386,40 @@ class TestPiRunnerSpawn:
             proc.kill = MagicMock()
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             await runner.spawn(config)
 
-        assert captured_kwargs["env"] is None
+        env = captured_kwargs["env"]
+        assert env is not None
+        assert "PATH" in env
+
+    @pytest.mark.asyncio
+    async def test_pi_bin_dir_injected_into_path(self):
+        """pi's bin directory should be prepended to subprocess PATH."""
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
+        captured_kwargs = {}
+
+        async def fake_exec(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = 0
+            proc.kill = MagicMock()
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value="/home/user/.nvm/versions/node/v20/bin/pi"),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            await runner.spawn(config)
+
+        env = captured_kwargs["env"]
+        assert env["PATH"].startswith("/home/user/.nvm/versions/node/v20/bin:")
 
     @pytest.mark.asyncio
     async def test_cwd_passed_through(self):
@@ -370,7 +435,10 @@ class TestPiRunnerSpawn:
             proc.kill = MagicMock()
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             await runner.spawn(config)
 
@@ -400,7 +468,10 @@ class TestPiRunnerSpawn:
             proc.returncode = -9
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             result = await runner.spawn(config)
 
@@ -409,13 +480,29 @@ class TestPiRunnerSpawn:
         assert result.stderr == "err"
 
     @pytest.mark.asyncio
-    async def test_file_not_found_graceful(self):
-        """When pi CLI is not installed, return a helpful error."""
+    async def test_which_returns_none_graceful(self):
+        """When shutil.which('pi') returns None, return helpful error without spawning."""
         config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
 
-        with patch(
-            "wave_server.engine.runner.asyncio.create_subprocess_exec",
-            side_effect=FileNotFoundError("No such file"),
+        with patch("wave_server.engine.runner.shutil.which", return_value=None):
+            runner = PiRunner()
+            result = await runner.spawn(config)
+
+        assert result.exit_code == 1
+        assert result.timed_out is False
+        assert "pi CLI not found" in result.stderr
+
+    @pytest.mark.asyncio
+    async def test_file_not_found_at_exec_time(self):
+        """FileNotFoundError during exec (race condition) is handled gracefully."""
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError("No such file"),
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -436,7 +523,10 @@ class TestPiRunnerSpawn:
             proc.kill = MagicMock()
             return proc
 
-        with patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
             runner = PiRunner()
             result = await runner.spawn(config)
 
@@ -465,6 +555,7 @@ class TestPiRunnerSpawn:
             return proc
 
         with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
             patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
             patch("wave_server.engine.runner.asyncio.wait_for", side_effect=tracking_wait_for),
         ):
@@ -493,6 +584,7 @@ class TestPiRunnerSpawn:
             return proc
 
         with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
             patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
             patch("wave_server.engine.runner.asyncio.wait_for", side_effect=tracking_wait_for),
         ):
