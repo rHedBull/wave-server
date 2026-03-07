@@ -1114,3 +1114,205 @@ class TestContinuation:
         # All tasks should have been spawned (nothing to skip)
         assert "1-1" in runner.spawned
         assert "1-2" in runner.spawned
+
+
+# ── Tests: Pi runtime parser dispatch ─────────────────────────
+
+# Sample pi JSONL output for the mock runner to return
+_PI_JSONL_TASK_OUTPUT = "\n".join([
+    '{"type":"session","version":3,"id":"s1","timestamp":"2026-03-07T17:00:00Z","cwd":"/tmp"}',
+    '{"type":"agent_start"}',
+    '{"type":"turn_start"}',
+    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Done task."}],"model":"claude-sonnet-4-5","usage":{"input":500,"output":30,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.002}}}}',
+    '{"type":"turn_end"}',
+    '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"Done task."}],"usage":{"input":500,"output":30,"cost":{"total":0.002}}}]}',
+])
+
+
+class PiMockRunner:
+    """Mock runner that returns pi-format JSONL output."""
+
+    def __init__(self, results: dict[str, int] | None = None):
+        self.results = results or {}
+        self.spawned: list[str] = []
+
+    async def spawn(self, config: RunnerConfig) -> RunnerResult:
+        self.spawned.append(config.task_id)
+        exit_code = self.results.get(config.task_id, 0)
+        return RunnerResult(
+            exit_code=exit_code,
+            stdout=_PI_JSONL_TASK_OUTPUT,
+            stderr="" if exit_code == 0 else f"Error in {config.task_id}",
+        )
+
+    def extract_final_output(self, stdout: str) -> str:
+        for line in stdout.split("\n"):
+            try:
+                msg = json.loads(line)
+                if msg.get("type") == "agent_end":
+                    messages = msg.get("messages", [])
+                    for m in reversed(messages):
+                        if m.get("role") == "assistant":
+                            for block in m.get("content", []):
+                                if block.get("type") == "text":
+                                    return block.get("text", "")
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return stdout
+
+
+async def _setup_pi_execution(
+    session_factory,
+    repo_path: str,
+    plan_content: str = SIMPLE_PLAN,
+) -> tuple[str, str, str]:
+    """Create project + sequence + execution with runtime='pi'."""
+    async with session_factory() as db:
+        project = Project(name="pi-test-project")
+        db.add(project)
+        await db.commit()
+        await db.refresh(project)
+
+        repo = ProjectRepository(
+            project_id=project.id, path=repo_path, label="test"
+        )
+        db.add(repo)
+        await db.commit()
+
+        sequence = Sequence(project_id=project.id, name="pi-test-seq")
+        db.add(sequence)
+        await db.commit()
+        await db.refresh(sequence)
+
+        execution = Execution(
+            sequence_id=sequence.id,
+            runtime="pi",
+            config=json.dumps({"concurrency": 2, "timeout_ms": 60000}),
+        )
+        db.add(execution)
+        await db.commit()
+        await db.refresh(execution)
+
+        return project.id, sequence.id, execution.id
+
+
+class TestPiRuntimeDispatch:
+    """Verify that runtime='pi' executions use parse_pi_json for task logs."""
+
+    @pytest.mark.asyncio
+    async def test_pi_execution_completes_successfully(self, test_db, _mock_storage, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        runner = PiMockRunner()
+        _mock_storage.read_plan.return_value = SIMPLE_PLAN
+
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner,
+        ):
+            _, seq_id, exec_id = await _setup_pi_execution(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+            await _run_execution(exec_id, seq_id)
+            await asyncio.sleep(0.1)
+
+        exc = await _get_execution(test_db, exec_id)
+        assert exc.status == "completed"
+        assert exc.runtime == "pi"
+
+    @pytest.mark.asyncio
+    async def test_pi_parse_pi_json_called(self, test_db, _mock_storage, tmp_path):
+        """Verify parse_pi_json is called instead of parse_stream_json."""
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        runner = PiMockRunner()
+        _mock_storage.read_plan.return_value = SIMPLE_PLAN
+
+        with (
+            patch(
+                "wave_server.engine.execution_manager.get_runner",
+                return_value=runner,
+            ),
+            patch(
+                "wave_server.engine.execution_manager.parse_pi_json",
+                wraps=__import__("wave_server.engine.log_parser", fromlist=["parse_pi_json"]).parse_pi_json,
+            ) as mock_pi_parse,
+            patch(
+                "wave_server.engine.execution_manager.parse_stream_json",
+                wraps=__import__("wave_server.engine.log_parser", fromlist=["parse_stream_json"]).parse_stream_json,
+            ) as mock_claude_parse,
+        ):
+            _, seq_id, exec_id = await _setup_pi_execution(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+            await _run_execution(exec_id, seq_id)
+            await asyncio.sleep(0.1)
+
+        # parse_pi_json should have been called (2 tasks in SIMPLE_PLAN)
+        assert mock_pi_parse.call_count >= 2
+        # parse_stream_json should NOT have been called
+        assert mock_claude_parse.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_claude_runtime_still_uses_stream_json(self, test_db, _mock_storage, tmp_path):
+        """Sanity check: runtime='claude' still calls parse_stream_json, not parse_pi_json."""
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        runner = MockRunner()
+        _mock_storage.read_plan.return_value = SIMPLE_PLAN
+
+        with (
+            patch(
+                "wave_server.engine.execution_manager.get_runner",
+                return_value=runner,
+            ),
+            patch(
+                "wave_server.engine.execution_manager.parse_pi_json",
+            ) as mock_pi_parse,
+            patch(
+                "wave_server.engine.execution_manager.parse_stream_json",
+                wraps=__import__("wave_server.engine.log_parser", fromlist=["parse_stream_json"]).parse_stream_json,
+            ) as mock_claude_parse,
+        ):
+            _, seq_id, exec_id = await _setup_project_and_sequence(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+            await _run_execution(exec_id, seq_id)
+            await asyncio.sleep(0.1)
+
+        assert mock_claude_parse.call_count >= 2
+        assert mock_pi_parse.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_pi_task_log_written_with_correct_content(self, test_db, _mock_storage, tmp_path):
+        """Verify task logs written by pi runtime contain pi-parsed data."""
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+
+        runner = PiMockRunner()
+        _mock_storage.read_plan.return_value = SIMPLE_PLAN
+
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=runner,
+        ):
+            _, seq_id, exec_id = await _setup_pi_execution(
+                test_db, repo_path=str(repo_dir)
+            )
+            from wave_server.engine.execution_manager import _run_execution
+            await _run_execution(exec_id, seq_id)
+            await asyncio.sleep(0.1)
+
+        # Check write_task_log was called with markdown containing pi-parsed data
+        assert _mock_storage.write_task_log.call_count >= 2
+        # Get the task_log content from first call
+        call_args = _mock_storage.write_task_log.call_args_list[0]
+        task_log = call_args[0][2]  # positional arg: (exec_id, task_id, task_log, agent)
+        assert "claude-sonnet-4-5" in task_log  # model from pi output
+        assert "$0.0020" in task_log  # cost from pi output
