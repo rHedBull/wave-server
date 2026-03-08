@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wave_server.engine.runner import AgentRunner, PiRunner, get_runner
+from wave_server.engine.runner import AgentRunner, PiRunner, _detect_pi_output_failure, get_runner
 from wave_server.engine.log_parser import (
     AssistantTurn,
     ParsedLog,
@@ -859,3 +859,417 @@ class TestParsePiJsonFormatIntegration:
         assert "⏰" in log
         assert "TIMED OUT" in log
         assert "*(no output)*" in log
+
+
+# ── _detect_pi_output_failure ──────────────────────────────────
+
+
+class TestDetectPiOutputFailure:
+    """Tests for _detect_pi_output_failure — detects rate limits and API errors
+    that pi exits 0 for."""
+
+    def test_no_failure_on_normal_output(self):
+        """Normal successful pi output should not be flagged."""
+        assert _detect_pi_output_failure(SAMPLE_PI_OUTPUT) is None
+
+    def test_no_failure_on_empty_output(self):
+        assert _detect_pi_output_failure("") is None
+
+    def test_no_failure_on_malformed_lines(self):
+        assert _detect_pi_output_failure("not json\nalso not json\n") is None
+
+    def test_detects_auto_retry_end_failure(self):
+        """auto_retry_end with success=false should be detected."""
+        lines = [
+            json.dumps({"type": "agent_start"}),
+            json.dumps({
+                "type": "auto_retry_end",
+                "success": False,
+                "attempt": 3,
+                "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is not None
+        assert "retries exhausted" in result
+        assert "rate_limit_error" in result
+
+    def test_detects_rate_limit_in_agent_end(self):
+        """agent_end with error stopReason and rate limit errorMessage, no output."""
+        lines = [
+            json.dumps({"type": "agent_start"}),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [{
+                    "role": "assistant",
+                    "content": [],
+                    "stopReason": "error",
+                    "errorMessage": "429 rate_limit_error",
+                }],
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is not None
+        assert "error" in result.lower()
+
+    def test_detects_error_stop_reason_in_message_end(self):
+        """message_end with stopReason=error and no useful content."""
+        lines = [
+            json.dumps({
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [],
+                    "stopReason": "error",
+                    "errorMessage": "529 overloaded",
+                },
+            }),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [{
+                    "role": "assistant",
+                    "content": [],
+                    "stopReason": "error",
+                    "errorMessage": "529 overloaded",
+                }],
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is not None
+        assert "overloaded" in result
+
+    def test_no_failure_when_error_but_had_output(self):
+        """If agent produced real output before error, don't flag as failure.
+        The task may have completed its work before hitting a rate limit on the
+        final summary turn."""
+        lines = [
+            json.dumps({
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "I created the files."}],
+                    "stopReason": "stop",
+                },
+            }),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "I created the files."}],
+                        "stopReason": "stop",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": "429 rate limit",
+                    },
+                ],
+            }),
+        ]
+        # Had successful output, so not a total failure
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is None
+
+    def test_no_failure_when_tool_calls_made(self):
+        """If agent made tool calls (did work), error on final turn is not a total failure."""
+        lines = [
+            json.dumps({
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "toolCall", "name": "write", "arguments": {"path": "foo.py"}},
+                        ],
+                        "stopReason": "toolUse",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": "429 rate limit",
+                    },
+                ],
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is None
+
+    def test_auto_retry_failure_takes_precedence(self):
+        """auto_retry_end failure is detected even if there was some earlier output."""
+        lines = [
+            json.dumps({
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Partial work"}],
+                    "stopReason": "stop",
+                },
+            }),
+            json.dumps({
+                "type": "auto_retry_end",
+                "success": False,
+                "attempt": 3,
+                "finalError": "429 rate limit",
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is not None
+        assert "retries exhausted" in result
+
+    def test_auto_retry_success_not_flagged(self):
+        """auto_retry_end with success=true should not be flagged."""
+        lines = [
+            json.dumps({
+                "type": "auto_retry_end",
+                "success": True,
+                "attempt": 2,
+            }),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [{
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Done after retry"}],
+                    "stopReason": "stop",
+                }],
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is None
+
+    def test_detects_overloaded_error(self):
+        """529 overloaded errors should be detected the same as rate limits."""
+        lines = [
+            json.dumps({
+                "type": "auto_retry_end",
+                "success": False,
+                "attempt": 3,
+                "finalError": '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is not None
+        assert "overloaded" in result.lower()
+
+    def test_real_rate_limited_output(self):
+        """Test with actual captured output from a rate-limited pi task."""
+        # This is a simplified version of the real output we observed
+        lines = [
+            json.dumps({"type": "session", "version": 3, "id": "test"}),
+            json.dumps({"type": "agent_start"}),
+            json.dumps({"type": "turn_start"}),
+            json.dumps({
+                "type": "turn_end",
+                "message": {
+                    "role": "assistant", "content": [],
+                    "stopReason": "error",
+                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                },
+                "toolResults": [],
+            }),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [{
+                    "role": "assistant", "content": [],
+                    "stopReason": "error",
+                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                }],
+            }),
+            json.dumps({
+                "type": "auto_retry_start",
+                "attempt": 3, "maxAttempts": 3, "delayMs": 8000,
+                "errorMessage": "429 rate_limit_error",
+            }),
+            json.dumps({"type": "agent_start"}),
+            json.dumps({"type": "turn_start"}),
+            json.dumps({
+                "type": "turn_end",
+                "message": {
+                    "role": "assistant", "content": [],
+                    "stopReason": "error",
+                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                },
+                "toolResults": [],
+            }),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [{
+                    "role": "assistant", "content": [],
+                    "stopReason": "error",
+                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                }],
+            }),
+            json.dumps({
+                "type": "auto_retry_end",
+                "success": False,
+                "attempt": 3,
+                "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+            }),
+        ]
+        result = _detect_pi_output_failure("\n".join(lines))
+        assert result is not None
+        assert "retries exhausted" in result
+        assert "rate_limit" in result
+
+
+# ── PiRunner.spawn() — failure detection integration ──────────
+
+
+class TestPiRunnerSpawnFailureDetection:
+    """Tests that PiRunner.spawn() overrides exit_code when pi output
+    indicates a fatal error despite exit code 0."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_overrides_exit_code(self):
+        """Pi exits 0 with rate limit output → exit_code should be 1."""
+        rate_limited_output = "\n".join([
+            json.dumps({"type": "agent_start"}),
+            json.dumps({
+                "type": "agent_end",
+                "messages": [{
+                    "role": "assistant", "content": [],
+                    "stopReason": "error",
+                    "errorMessage": "429 rate_limit_error",
+                }],
+            }),
+            json.dumps({
+                "type": "auto_retry_end",
+                "success": False,
+                "attempt": 3,
+                "finalError": "429 rate_limit_error",
+            }),
+        ])
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
+
+        async def fake_exec(*args, **kwargs):
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(
+                return_value=(rate_limited_output.encode(), b"")
+            )
+            proc.returncode = 0  # Pi exits 0 despite failure!
+            proc.kill = MagicMock()
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            result = await runner.spawn(config)
+
+        assert result.exit_code == 1
+        assert "retries exhausted" in result.stderr
+        assert result.timed_out is False
+
+    @pytest.mark.asyncio
+    async def test_normal_output_keeps_exit_code_zero(self):
+        """Normal successful output should keep exit_code=0."""
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
+
+        async def fake_exec(*args, **kwargs):
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(
+                return_value=(SAMPLE_PI_OUTPUT.encode(), b"")
+            )
+            proc.returncode = 0
+            proc.kill = MagicMock()
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            result = await runner.spawn(config)
+
+        assert result.exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_code_preserved(self):
+        """When pi already returns non-zero, don't double-check output."""
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
+
+        async def fake_exec(*args, **kwargs):
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"some output", b"some error"))
+            proc.returncode = 2
+            proc.kill = MagicMock()
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            result = await runner.spawn(config)
+
+        assert result.exit_code == 2
+
+    @pytest.mark.asyncio
+    async def test_timeout_skips_failure_detection(self):
+        """When timed out, don't run output failure detection."""
+        rate_limited_output = json.dumps({
+            "type": "auto_retry_end",
+            "success": False,
+            "finalError": "429 rate limit",
+        })
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp", timeout_ms=100)
+
+        async def fake_exec(*args, **kwargs):
+            proc = AsyncMock()
+            call_count = 0
+
+            async def communicate_side_effect():
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise asyncio.TimeoutError()
+                return (rate_limited_output.encode(), b"")
+
+            proc.communicate = communicate_side_effect
+            proc.kill = MagicMock()
+            proc.returncode = -9
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            result = await runner.spawn(config)
+
+        # Timed out — exit_code comes from process, not from detection
+        assert result.timed_out is True
+        assert result.exit_code == -9
+
+    @pytest.mark.asyncio
+    async def test_existing_stderr_preserved_with_detection(self):
+        """When failure is detected, existing stderr is preserved alongside new message."""
+        rate_limited_output = json.dumps({
+            "type": "auto_retry_end",
+            "success": False,
+            "finalError": "429 rate limit",
+        })
+        config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
+
+        async def fake_exec(*args, **kwargs):
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(
+                return_value=(rate_limited_output.encode(), b"existing warning")
+            )
+            proc.returncode = 0
+            proc.kill = MagicMock()
+            return proc
+
+        with (
+            patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
+            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            runner = PiRunner()
+            result = await runner.spawn(config)
+
+        assert result.exit_code == 1
+        assert "existing warning" in result.stderr
+        assert "retries exhausted" in result.stderr

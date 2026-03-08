@@ -7,6 +7,8 @@ import pytest
 from wave_server.engine.feature_executor import execute_feature
 from wave_server.engine.types import Feature, RunnerConfig, RunnerResult, Task, TaskResult
 
+from pi_test_helpers import RateLimitPiMockRunner
+
 
 class MockRunner:
     def __init__(self, results: dict[str, int] | None = None):
@@ -216,3 +218,86 @@ class TestCwd:
         runner = MockRunner()
         await execute_feature(feature, runner)
         assert runner.cwds == ["."]
+
+
+# ── Rate limit detection (PiRunner integration) ───────────────
+
+
+class TestRateLimitDetection:
+    """Integration tests: rate-limited pi tasks are correctly marked as failed
+    in the feature executor pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_task_fails(self):
+        """A single rate-limited task should be marked as failed."""
+        feature = Feature(name="test", tasks=[_task("t1")])
+        runner = RateLimitPiMockRunner(rate_limited_task_ids={"t1"})
+
+        result = await execute_feature(feature, runner)
+
+        assert not result.passed
+        assert result.task_results[0].exit_code == 1
+        assert "retries exhausted" in result.task_results[0].stderr
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_task_blocks_dependents(self):
+        """Tasks depending on a rate-limited task should be skipped."""
+        feature = Feature(
+            name="test",
+            tasks=[
+                _task("t1"),
+                _task("t2", depends=["t1"]),
+                _task("t3", depends=["t2"]),
+            ],
+        )
+        runner = RateLimitPiMockRunner(rate_limited_task_ids={"t1"})
+
+        result = await execute_feature(feature, runner)
+
+        assert not result.passed
+        assert len(result.task_results) == 3
+        # t1 failed (rate limited)
+        assert result.task_results[0].id == "t1"
+        assert result.task_results[0].exit_code == 1
+        # t2 skipped (dependency failed)
+        assert result.task_results[1].id == "t2"
+        assert result.task_results[1].exit_code == -1
+        # t3 skipped (dependency chain failed)
+        assert result.task_results[2].id == "t3"
+        assert result.task_results[2].exit_code == -1
+        # Only t1 was spawned
+        assert runner.spawned == ["t1"]
+
+    @pytest.mark.asyncio
+    async def test_mix_of_rate_limited_and_successful(self):
+        """Some tasks rate-limited, others succeed — feature should fail."""
+        feature = Feature(
+            name="test",
+            tasks=[
+                _task("t1"),  # succeeds
+                _task("t2"),  # rate limited
+            ],
+        )
+        runner = RateLimitPiMockRunner(rate_limited_task_ids={"t2"})
+
+        result = await execute_feature(feature, runner)
+
+        assert not result.passed
+        t1_result = next(r for r in result.task_results if r.id == "t1")
+        t2_result = next(r for r in result.task_results if r.id == "t2")
+        assert t1_result.exit_code == 0
+        assert t2_result.exit_code == 1
+
+    @pytest.mark.asyncio
+    async def test_successful_task_still_passes(self):
+        """When no tasks are rate-limited, everything passes normally."""
+        feature = Feature(
+            name="test",
+            tasks=[_task("t1"), _task("t2")],
+        )
+        runner = RateLimitPiMockRunner(rate_limited_task_ids=set())
+
+        result = await execute_feature(feature, runner)
+
+        assert result.passed
+        assert all(r.exit_code == 0 for r in result.task_results)
