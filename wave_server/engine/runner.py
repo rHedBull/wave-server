@@ -21,6 +21,77 @@ class AgentRunner(Protocol):
     def extract_final_output(self, stdout: str) -> str: ...
 
 
+def _detect_pi_output_failure(stdout: str) -> str | None:
+    """Scan pi's JSON output for fatal errors that pi doesn't reflect in its exit code.
+
+    Pi CLI exits 0 even when it encounters rate limits, API overload errors,
+    or other fatal conditions. This function inspects the structured output
+    to detect these failures.
+
+    Returns an error description string if a failure is detected, None otherwise.
+    """
+    has_auto_retry_failure = False
+    auto_retry_error = ""
+    last_agent_end_error = ""
+    last_stop_reason = ""
+    had_any_successful_output = False
+
+    for line in stdout.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+        msg_type = msg.get("type", "")
+
+        # Check auto_retry_end — pi retried and all attempts failed
+        if msg_type == "auto_retry_end" and not msg.get("success", True):
+            has_auto_retry_failure = True
+            auto_retry_error = msg.get("finalError", "")
+
+        # Check agent_end for error stop reason
+        if msg_type == "agent_end":
+            messages = msg.get("messages", [])
+            if messages:
+                last_msg = messages[-1]
+                error_msg = last_msg.get("errorMessage", "")
+                stop_reason = last_msg.get("stopReason", "")
+                if error_msg:
+                    last_agent_end_error = error_msg
+                if stop_reason:
+                    last_stop_reason = stop_reason
+                # Check if any assistant message produced real content
+                for m in messages:
+                    if m.get("role") == "assistant":
+                        for block in m.get("content", []):
+                            if block.get("type") == "text" and block.get("text", "").strip():
+                                had_any_successful_output = True
+                            elif block.get("type") == "toolCall":
+                                had_any_successful_output = True
+
+        # Check message_end/turn_end for error stop reasons
+        if msg_type in ("message_end", "turn_end"):
+            inner = msg.get("message", {})
+            if inner.get("stopReason") == "error":
+                error_msg = inner.get("errorMessage", "")
+                if error_msg:
+                    last_agent_end_error = error_msg
+                    last_stop_reason = "error"
+
+    # auto_retry_end with success=false is the strongest signal
+    if has_auto_retry_failure:
+        return f"Pi task failed after retries exhausted: {auto_retry_error}"
+
+    # agent_end with error stop reason and no useful output
+    if last_stop_reason == "error" and not had_any_successful_output:
+        return f"Pi task ended with error (no output produced): {last_agent_end_error}"
+
+    return None
+
+
 class PiRunner:
     """Spawns `pi` subprocesses with JSON mode output.
 
@@ -82,10 +153,22 @@ class PiRunner:
                 stdout_bytes, stderr_bytes = await proc.communicate()
                 timed_out = True
 
+            stdout_str = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_str = stderr_bytes.decode("utf-8", errors="replace")
+            exit_code = proc.returncode or 0
+
+            # Pi exits 0 even on fatal errors (rate limits, overloaded, etc.).
+            # Inspect the JSON output to detect these failures.
+            if exit_code == 0 and not timed_out:
+                detected = _detect_pi_output_failure(stdout_str)
+                if detected:
+                    exit_code = 1
+                    stderr_str = (stderr_str + "\n" + detected).strip()
+
             return RunnerResult(
-                exit_code=proc.returncode or 0,
-                stdout=stdout_bytes.decode("utf-8", errors="replace"),
-                stderr=stderr_bytes.decode("utf-8", errors="replace"),
+                exit_code=exit_code,
+                stdout=stdout_str,
+                stderr=stderr_str,
                 timed_out=timed_out,
             )
         except FileNotFoundError:

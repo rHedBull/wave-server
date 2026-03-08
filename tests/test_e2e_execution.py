@@ -1065,3 +1065,192 @@ class TestE2EEdgeCases:
         # Wave 2 tasks should never have been spawned
         assert "2-1" not in mock_runner.spawned
         assert "2-2" not in mock_runner.spawned
+
+
+# ── Rate Limit Simulation (Pi Runtime) ─────────────────────────
+
+
+def _build_rate_limited_pi_output() -> str:
+    """Build realistic pi JSON output for a rate-limited task.
+
+    Simulates pi exiting 0 after all retries fail with 429 errors.
+    """
+    return "\n".join([
+        json.dumps({"type": "session", "version": 3, "id": "rl-test"}),
+        json.dumps({"type": "agent_start"}),
+        json.dumps({"type": "turn_start"}),
+        json.dumps({
+            "type": "turn_end",
+            "message": {
+                "role": "assistant", "content": [],
+                "stopReason": "error",
+                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+            },
+            "toolResults": [],
+        }),
+        json.dumps({
+            "type": "agent_end",
+            "messages": [{
+                "role": "assistant", "content": [],
+                "stopReason": "error",
+                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+            }],
+        }),
+        json.dumps({
+            "type": "auto_retry_end",
+            "success": False,
+            "attempt": 3,
+            "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+        }),
+    ])
+
+
+class RateLimitMockRunner:
+    """Mock runner that simulates PiRunner with rate-limited tasks.
+
+    Rate-limited tasks return exit_code=0 (like real pi) with error JSON output.
+    The runner applies _detect_pi_output_failure to override the exit code,
+    just like the real PiRunner.spawn() does.
+    """
+
+    def __init__(self, rate_limited_task_ids: set[str]):
+        self.rate_limited_task_ids = rate_limited_task_ids
+        self.spawned: list[str] = []
+
+    async def spawn(self, config: RunnerConfig) -> RunnerResult:
+        from wave_server.engine.runner import _detect_pi_output_failure
+
+        self.spawned.append(config.task_id)
+        await asyncio.sleep(0.01)
+
+        if config.task_id in self.rate_limited_task_ids:
+            stdout = _build_rate_limited_pi_output()
+            exit_code = 0  # Pi exits 0!
+            stderr = ""
+
+            # Apply same detection as real PiRunner.spawn()
+            detected = _detect_pi_output_failure(stdout)
+            if detected:
+                exit_code = 1
+                stderr = detected
+
+            return RunnerResult(
+                exit_code=exit_code, stdout=stdout, stderr=stderr,
+            )
+
+        # Normal success
+        output = f"Completed task {config.task_id}"
+        return RunnerResult(
+            exit_code=0,
+            stdout=json.dumps({"type": "result", "result": output}),
+            stderr="",
+        )
+
+    def extract_final_output(self, stdout: str) -> str:
+        for line in stdout.split("\n"):
+            try:
+                msg = json.loads(line)
+                if msg.get("type") == "result":
+                    return msg.get("result", "")
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return "(rate limited — no output)"
+
+
+assert isinstance(RateLimitMockRunner(set()), AgentRunner)
+
+
+class TestE2ERateLimitDetection:
+    """E2E: rate-limited pi tasks are correctly marked as failed through
+    the full execution pipeline (API → execution_manager → wave_executor)."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_task_fails_execution(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
+        """A rate-limited task should cause the execution to fail,
+        emit task_failed event, and mark dependent tasks as skipped."""
+        client = e2e_client
+        # Task 1-2 gets rate limited → 1-3 (depends on 1-2) should be skipped
+        mock_runner = RateLimitMockRunner(rate_limited_task_ids={"1-2"})
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, FAILING_TASK_PLAN)
+
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=mock_runner,
+        ):
+            execution_id = await _start_execution(client, sequence_id)
+            result = await _poll_execution(client, execution_id)
+
+        # Execution should be failed
+        assert result["status"] == "failed"
+
+        # 1-1 succeeded, 1-2 was rate limited (failed), 1-3 was never spawned
+        assert "1-1" in mock_runner.spawned
+        assert "1-2" in mock_runner.spawned
+        assert "1-3" not in mock_runner.spawned
+
+        # Verify events reflect the rate limit failure
+        r = await client.get(f"/api/v1/executions/{execution_id}/events")
+        events = r.json()
+        event_types = [e["event_type"] for e in events]
+
+        assert "task_completed" in event_types  # 1-1
+        assert "task_failed" in event_types      # 1-2 (rate limited)
+
+        # Verify the failed task has exit_code != 0
+        failed_events = [
+            e for e in events
+            if e["event_type"] == "task_failed" and e["task_id"] == "1-2"
+        ]
+        assert len(failed_events) == 1
+        payload = json.loads(failed_events[0]["payload"])
+        assert payload["exit_code"] == 1
+
+        # run_completed should indicate failure
+        run_completed = next(e for e in events if e["event_type"] == "run_completed")
+        payload = json.loads(run_completed["payload"])
+        assert payload["passed"] is False
+
+    @pytest.mark.asyncio
+    async def test_all_tasks_rate_limited(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
+        """When the first task is rate limited, all dependents are skipped."""
+        client = e2e_client
+        mock_runner = RateLimitMockRunner(rate_limited_task_ids={"1-1"})
+
+        project_id = await _create_project(client)
+        await _register_repo(client, project_id, repo_dir)
+        sequence_id = await _create_sequence(client, project_id)
+        await _upload_plan(client, sequence_id, FAILING_TASK_PLAN)
+
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=mock_runner,
+        ):
+            execution_id = await _start_execution(client, sequence_id)
+            result = await _poll_execution(client, execution_id)
+
+        assert result["status"] == "failed"
+
+        # Only 1-1 was spawned (it failed), 1-2 and 1-3 never ran
+        assert mock_runner.spawned == ["1-1"]
+
+        # Verify events: 1-1 started and failed, no other tasks started
+        r = await client.get(f"/api/v1/executions/{execution_id}/events")
+        events = r.json()
+        event_types = [e["event_type"] for e in events]
+
+        assert "task_failed" in event_types
+        failed_events = [e for e in events if e["event_type"] == "task_failed"]
+        assert len(failed_events) == 1
+        assert failed_events[0]["task_id"] == "1-1"
+
+        # No task_completed events since the only task that ran was rate limited
+        started_task_ids = {e["task_id"] for e in events if e["event_type"] == "task_started"}
+        assert started_task_ids == {"1-1"}
