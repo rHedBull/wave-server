@@ -14,6 +14,7 @@ import Badge from "@cloudscape-design/components/badge";
 import SplitPanel from "@cloudscape-design/components/split-panel";
 import AppShell from "@/components/AppShell";
 import BlockerBanner from "@/components/BlockerBanner";
+import CopyableId from "@/components/CopyableId";
 import LogTail from "@/components/LogTail";
 import PlanGraphView, { type TaskStatusMap } from "@/components/PlanGraph";
 import TaskDetail from "@/components/TaskDetail";
@@ -145,6 +146,7 @@ export default function ExecutionPage({
       <SpaceBetween size="l">
         <Header
           variant="h1"
+          description={<CopyableId id={id} label="Execution" />}
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               {isActive && (

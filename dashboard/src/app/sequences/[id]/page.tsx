@@ -16,6 +16,7 @@ import Textarea from "@cloudscape-design/components/textarea";
 import Flashbar from "@cloudscape-design/components/flashbar";
 import AppShell from "@/components/AppShell";
 import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
+import CopyableId from "@/components/CopyableId";
 import MarkdownView from "@/components/MarkdownView";
 import PlanGraphView from "@/components/PlanGraph";
 import { usePolling } from "@/hooks/usePolling";
@@ -140,6 +141,7 @@ export default function SequenceDetailPage({
       <SpaceBetween size="l">
         <Header
           variant="h1"
+          description={<CopyableId id={id} label="Sequence" />}
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               {!editing && (

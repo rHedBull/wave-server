@@ -1,5 +1,22 @@
 /* Cloudscape handles all styling via its global-styles import */
 
+/* Keep navigation always open – hide the collapse toggle */
+button[aria-label="Close navigation"],
+button[aria-label="Open navigation"] {
+  display: none !important;
+}
+
+/* Nav header: logo on top, text below */
+[class*="header-link"][class*="has-logo"] {
+  flex-direction: column !important;
+  align-items: center !important;
+}
+[class*="header-logo"] {
+  max-inline-size: 80px !important;
+  margin-inline-end: 0 !important;
+  margin-block-end: 8px;
+}
+
 /* Danger button styling */
 .btn-danger button {
   background-color: #d91515 !important;

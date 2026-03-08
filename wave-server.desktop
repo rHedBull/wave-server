@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Wave Server
+Comment=Start Wave Server (backend + dashboard)
+Exec=/home/hendrik/coding/pi/wave-server/start.sh
+Path=/home/hendrik/coding/pi/wave-server
+Icon=/home/hendrik/coding/pi/wave-server/wave-icon.png
+Terminal=true
+Categories=Development;
+StartupNotify=true

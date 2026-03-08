@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 from typing import Protocol, runtime_checkable
 
 from wave_server.engine.types import RunnerConfig, RunnerResult
@@ -28,8 +29,16 @@ class PiRunner:
     """
 
     async def spawn(self, config: RunnerConfig) -> RunnerResult:
+        pi_bin = shutil.which("pi")
+        if not pi_bin:
+            return RunnerResult(
+                exit_code=1,
+                stdout="",
+                stderr="pi CLI not found. Install pi: npm install -g @mariozechner/pi-coding-agent",
+                timed_out=False,
+            )
         cmd = [
-            "pi",
+            pi_bin,
             "--print",
             "--mode", "json",
             "--no-extensions",
@@ -44,9 +53,14 @@ class PiRunner:
         cmd.append(config.prompt)
 
         try:
-            spawn_env = None
+            # Ensure nvm/node PATH is available in subprocess
+            spawn_env = {**os.environ}
             if config.env:
-                spawn_env = {**os.environ, **config.env}
+                spawn_env.update(config.env)
+            # Add pi's bin dir to PATH if not already present
+            pi_dir = os.path.dirname(pi_bin)
+            if pi_dir not in spawn_env.get("PATH", ""):
+                spawn_env["PATH"] = pi_dir + ":" + spawn_env.get("PATH", "")
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

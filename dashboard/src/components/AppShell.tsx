@@ -66,12 +66,18 @@ export default function AppShell({
   return (
     <AppLayout
       navigationOpen={true}
+      navigationHide={false}
+      navigationWidth={220}
       onNavigationChange={() => {}}
       navigation={
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ flex: 1 }}>
             <SideNavigation
-              header={{ text: "Wave Server", href: "/" }}
+              header={{
+                text: "Wave Server",
+                href: "/",
+                logo: { src: "/wave-icon.png", alt: "Wave" },
+              }}
               items={navItems}
               activeHref={activeHref || pathname}
               onFollow={(e) => {
