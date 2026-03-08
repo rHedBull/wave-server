@@ -1,7 +1,6 @@
 """Tests for the standalone feature executor."""
 
 import json
-import textwrap
 
 import pytest
 
