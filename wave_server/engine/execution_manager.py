@@ -35,6 +35,7 @@ from wave_server.engine.git_worktree import (
     branch_exists,
     build_signing_env,
     checkout_branch,
+    create_execution_worktree,
     create_pr,
     create_work_branch,
     get_current_branch,
@@ -43,6 +44,7 @@ from wave_server.engine.git_worktree import (
     has_gh_cli,
     is_git_repo,
     push_branch,
+    remove_execution_worktree,
     sha_exists,
 )
 from wave_server.config import settings as server_settings
@@ -181,6 +183,8 @@ async def _run_execution(
     use_git = False
     original_branch: str | None = None
     repo_cwd: str | None = None
+    repo_root: str | None = None  # original repo path (never changes)
+    exec_worktree_dir: str | None = None  # execution-level worktree (cleanup on error)
 
     async with async_session() as db:
         try:
@@ -275,6 +279,7 @@ async def _run_execution(
 
             # ── Git branch setup ───────────────────────────────
             use_git = await is_git_repo(repo_cwd)
+            repo_root = repo_cwd  # preserve original repo path
 
             if use_git:
                 original_branch = await get_current_branch(repo_cwd)
@@ -309,16 +314,11 @@ async def _run_execution(
 
                 start_point = execution.source_sha or source_branch
 
-                if await branch_exists(repo_cwd, work_branch):
-                    # Resume: reuse existing work branch (e.g. from /continue)
-                    ok, err = await checkout_branch(repo_cwd, work_branch)
-                else:
-                    ok, err = await create_work_branch(repo_cwd, work_branch, start_point)
-
-                if not ok:
-                    # Try to restore original branch before failing
-                    if original_branch:
-                        await checkout_branch(repo_cwd, original_branch)
+                # Use a worktree so the user's working tree is never disturbed.
+                wt_dir, err = await create_execution_worktree(
+                    repo_cwd, work_branch, start_point
+                )
+                if not wt_dir:
                     execution.status = "failed"
                     execution.finished_at = datetime.now(timezone.utc)
                     await db.commit()
@@ -327,6 +327,12 @@ async def _run_execution(
                         payload={"passed": False, "error": f"Cannot create work branch: {err}"},
                     )
                     return
+
+                exec_worktree_dir = wt_dir
+                # From here on, all work happens inside the worktree —
+                # repo_cwd is redirected so downstream code (wave executor,
+                # feature worktrees, push, etc.) operates in the right place.
+                repo_cwd = exec_worktree_dir
 
                 await db.commit()
 
@@ -634,9 +640,9 @@ async def _run_execution(
                 else:
                     pr_error = "No remote configured — work branch available locally"
 
-            # Restore original branch (best-effort)
-            if use_git and original_branch and original_branch != execution.work_branch:
-                await checkout_branch(repo_cwd, original_branch)
+            # Clean up execution worktree (branch is preserved for push/PR)
+            if exec_worktree_dir and repo_root:
+                await remove_execution_worktree(repo_root, exec_worktree_dir)
 
             # Complete
             duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -668,9 +674,9 @@ async def _run_execution(
             )
 
         except asyncio.CancelledError:
-            # Restore original branch on cancellation (best-effort)
-            if use_git and original_branch and repo_cwd:
-                await checkout_branch(repo_cwd, original_branch)
+            # Clean up execution worktree on cancellation (best-effort)
+            if exec_worktree_dir and repo_root:
+                await remove_execution_worktree(repo_root, exec_worktree_dir)
             async with async_session() as db2:
                 execution = await db2.get(Execution, execution_id)
                 if execution:
@@ -683,9 +689,9 @@ async def _run_execution(
             raise
 
         except Exception as e:
-            # Restore original branch on failure (best-effort)
-            if use_git and original_branch and repo_cwd:
-                await checkout_branch(repo_cwd, original_branch)
+            # Clean up execution worktree on failure (best-effort)
+            if exec_worktree_dir and repo_root:
+                await remove_execution_worktree(repo_root, exec_worktree_dir)
             async with async_session() as db2:
                 execution = await db2.get(Execution, execution_id)
                 if execution:
