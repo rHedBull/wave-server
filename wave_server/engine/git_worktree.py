@@ -465,6 +465,140 @@ async def merge_sub_worktrees(
     return merge_results
 
 
+# ── Single Sub-Worktree Operations (ready-queue scheduler) ─────
+
+
+async def create_single_sub_worktree(
+    feature_wt: FeatureWorktree, wave_num: int, task_id: str
+) -> SubWorktree | None:
+    """Create one sub-worktree for a single task.
+
+    Must be called under a lock so the feature branch state is consistent
+    (i.e. all prior merges are visible to the new worktree).
+
+    Returns None if creation fails — caller should fall back to
+    running in the feature worktree directly.
+    """
+    feature_slug = _branch_slug(feature_wt.feature_name)
+    task_slug = _branch_slug(task_id)
+    branch = f"wave-{wave_num}/{feature_slug}--{task_slug}"
+    worktree_dir = os.path.join(
+        feature_wt.dir,
+        ".wave-sub-worktrees",
+        f"wave-{wave_num}",
+        f"{feature_slug}--{task_slug}",
+    )
+
+    try:
+        # Commit any pending changes so the sub-worktree sees latest state
+        if await _has_uncommitted_changes(feature_wt.dir):
+            await _run_git(["add", "-A"], feature_wt.dir)
+            await _run_git(
+                ["commit", "-m", "pi: snapshot before sub-worktree split"],
+                feature_wt.dir,
+            )
+
+        os.makedirs(os.path.dirname(worktree_dir), exist_ok=True)
+
+        code, _, err = await _run_git(
+            ["worktree", "add", "-b", branch, worktree_dir, feature_wt.branch],
+            feature_wt.repo_root,
+        )
+        if code != 0:
+            return None
+
+        return SubWorktree(
+            task_id=task_id,
+            branch=branch,
+            dir=worktree_dir,
+            parent_branch=feature_wt.branch,
+        )
+    except Exception:
+        return None
+
+
+async def merge_single_sub_worktree(
+    feature_wt: FeatureWorktree,
+    sw: SubWorktree,
+    task_id: str,
+    title: str,
+    agent: str,
+    runner: Any | None = None,
+) -> MergeResult:
+    """Commit, remove, and merge a single sub-worktree back into the feature branch.
+
+    Must be called under a lock to prevent concurrent merges into the
+    same feature branch.
+    """
+    # 1. Commit changes in the sub-worktree
+    await commit_task_output(sw.dir, task_id, title, agent)
+
+    # 2. Remove worktree (frees the directory, keeps the branch)
+    await _remove_worktree(feature_wt.repo_root, sw.dir)
+
+    # 3. Check if the branch actually has changes
+    code, diff_out, _ = await _run_git(
+        ["log", f"{feature_wt.branch}..{sw.branch}", "--oneline"],
+        feature_wt.repo_root,
+    )
+    if code == 0 and not diff_out.strip():
+        await _try_delete_branch(feature_wt.repo_root, sw.branch)
+        return MergeResult(
+            source=sw.branch,
+            target=feature_wt.branch,
+            success=True,
+            had_changes=False,
+        )
+
+    # 4. Merge branch into the feature worktree
+    code, _, err = await _run_git(
+        ["merge", "--no-ff", sw.branch, "-m", f"pi: merge {sw.task_id}"],
+        feature_wt.dir,
+    )
+
+    if code == 0:
+        await _try_delete_branch(feature_wt.repo_root, sw.branch)
+        return MergeResult(
+            source=sw.branch,
+            target=feature_wt.branch,
+            success=True,
+            had_changes=True,
+        )
+
+    # Merge conflict — try agent-based resolution
+    resolved = False
+    if runner:
+        resolved = await _try_resolve_conflicts(
+            feature_wt.dir, sw.branch, feature_wt.branch, runner
+        )
+
+    if resolved:
+        await _try_delete_branch(feature_wt.repo_root, sw.branch)
+        return MergeResult(
+            source=sw.branch,
+            target=feature_wt.branch,
+            success=True,
+            had_changes=True,
+        )
+
+    await _run_git(["merge", "--abort"], feature_wt.dir)
+    return MergeResult(
+        source=sw.branch,
+        target=feature_wt.branch,
+        success=False,
+        had_changes=True,
+        error=f'Merge conflict — branch "{sw.branch}" preserved for manual resolution',
+    )
+
+
+async def cleanup_single_sub_worktree(
+    repo_root: str, sw: SubWorktree
+) -> None:
+    """Remove a single sub-worktree and its branch. Best-effort."""
+    await _remove_worktree(repo_root, sw.dir)
+    await _try_delete_branch(repo_root, sw.branch)
+
+
 async def cleanup_sub_worktrees(
     repo_root: str, sub_worktrees: list[SubWorktree]
 ) -> None:

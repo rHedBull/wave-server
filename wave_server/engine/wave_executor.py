@@ -81,6 +81,11 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     feature_results: list[FeatureResult] = []
     integration_results: list[TaskResult] = []
 
+    # Single semaphore shared across ALL phases (foundation, features,
+    # integration) so that ``max_concurrency`` is a true system-wide
+    # ceiling — not per-phase or per-feature.
+    shared_sem = asyncio.Semaphore(opts.max_concurrency)
+
     async def run_task_with_runner(
         task: Task, phase: str
     ) -> TaskResult:
@@ -171,6 +176,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             wave.foundation,
             lambda task: run_task_with_runner(task, "foundation"),
             opts.max_concurrency,
+            semaphore=shared_sem,
         )
         foundation_results.extend(f_results)
 
@@ -216,10 +222,6 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 if wt:
                     all_feature_worktrees.append(wt)
 
-        per_feature_concurrency = max(
-            2, opts.max_concurrency // len(wave.features)
-        )
-
         async def run_feature(feature: Feature, idx: int) -> FeatureResult:
             feature_wt = feature_worktree_map.get(feature.name)
 
@@ -232,7 +234,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 environment=opts.environment,
                 project_context=opts.project_context,
                 cwd=opts.cwd,
-                max_concurrency=per_feature_concurrency,
+                max_concurrency=opts.max_concurrency,
                 skip_task_ids=opts.skip_task_ids,
                 feature_worktree=feature_wt,
                 wave_num=opts.wave_num,
@@ -243,6 +245,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 on_task_start=lambda task: _call(opts.on_task_start, f"feature:{feature.name}", task),
                 on_task_end=lambda task, tr: _call(opts.on_task_end, f"feature:{feature.name}", task, tr),
                 on_log=opts.on_log,
+                semaphore=shared_sem,
             )
 
             return result
@@ -311,6 +314,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             wave.integration,
             lambda task: run_task_with_runner(task, "integration"),
             opts.max_concurrency,
+            semaphore=shared_sem,
         )
         integration_results.extend(i_results)
 

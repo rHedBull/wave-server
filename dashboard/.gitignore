@@ -40,3 +40,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# pi handoff files (temporary)
+HANDOFF-*.md
+
+# pi wip & ideas (personal, not committed by default)
+WIP.md
+IDEAS.md

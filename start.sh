@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Load nvm so `pi` and `node` are on PATH for the pi runtime
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DASHBOARD_DIR="$PROJECT_DIR/dashboard"
 LOG_DIR="$PROJECT_DIR/data/logs"

@@ -182,6 +182,53 @@ async def test_execute_dag_all_pass():
 
 
 @pytest.mark.asyncio
+async def test_execute_dag_ready_queue():
+    """Verify that the ready-queue scheduler starts tasks as soon as their
+    dependencies are satisfied, rather than waiting for the entire level.
+
+    DAG:  A ──► C
+          B        (B is independent, no relation to C)
+
+    Level-based would put A and B in level 0, C in level 1, forcing C to
+    wait for both A and B.  Ready-queue should start C as soon as A
+    completes, even if B is still running.
+    """
+    import time
+
+    tasks = [
+        _task("a"),
+        _task("b"),
+        _task("c", ["a"]),  # depends only on A
+    ]
+
+    timestamps: dict[str, dict[str, float]] = {}
+
+    async def run(task: Task) -> TaskResult:
+        timestamps.setdefault(task.id, {})["start"] = time.monotonic()
+        if task.id == "b":
+            await asyncio.sleep(0.3)   # B is slow
+        elif task.id == "a":
+            await asyncio.sleep(0.1)   # A is fast
+        else:
+            await asyncio.sleep(0.05)  # C is very fast
+        timestamps[task.id]["end"] = time.monotonic()
+        return TaskResult(
+            id=task.id, title=task.title, agent="worker",
+            exit_code=0, output="ok", stderr="", duration_ms=100,
+        )
+
+    results = await execute_dag(tasks, run, max_concurrency=4)
+
+    # C should have started after A completed
+    assert timestamps["c"]["start"] >= timestamps["a"]["end"], \
+        "C should start after A completes"
+    # C should have started before B finished (ready-queue, not level-based)
+    assert timestamps["c"]["start"] < timestamps["b"]["end"], \
+        "C should start before B completes (ready-queue, not level-based)"
+    assert all(r.exit_code == 0 for r in results)
+
+
+@pytest.mark.asyncio
 async def test_execute_dag_skip_on_failure():
     tasks = [_task("a"), _task("b", ["a"])]
 
