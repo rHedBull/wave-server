@@ -5,8 +5,9 @@ import json
 import pytest
 
 from wave_server.engine.feature_executor import execute_feature
-from wave_server.engine.runner import PiRunner
 from wave_server.engine.types import Feature, RunnerConfig, RunnerResult, Task, TaskResult
+
+from pi_test_helpers import RateLimitPiMockRunner
 
 
 class MockRunner:
@@ -220,133 +221,6 @@ class TestCwd:
 
 
 # ── Rate limit detection (PiRunner integration) ───────────────
-
-
-def _build_rate_limited_pi_output() -> str:
-    """Build realistic pi JSON output that simulates a rate-limited task.
-
-    Pi exits 0 even when all retries fail. The output contains:
-    - agent_end with stopReason=error and errorMessage=429
-    - auto_retry_end with success=false
-    """
-    return "\n".join([
-        json.dumps({"type": "session", "version": 3, "id": "test-session"}),
-        json.dumps({"type": "agent_start"}),
-        json.dumps({"type": "turn_start"}),
-        json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-        }),
-        json.dumps({
-            "type": "turn_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-            "toolResults": [],
-        }),
-        json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            }],
-        }),
-        json.dumps({
-            "type": "auto_retry_start",
-            "attempt": 3, "maxAttempts": 3, "delayMs": 8000,
-            "errorMessage": "429 rate_limit_error",
-        }),
-        json.dumps({"type": "agent_start"}),
-        json.dumps({"type": "turn_start"}),
-        json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-        }),
-        json.dumps({
-            "type": "turn_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-            "toolResults": [],
-        }),
-        json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            }],
-        }),
-        json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "attempt": 3,
-            "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-        }),
-    ])
-
-
-class RateLimitPiMockRunner:
-    """Mock runner that simulates PiRunner behavior: exit code 0 but rate-limited output.
-
-    Uses the real PiRunner's output failure detection logic by wrapping
-    _detect_pi_output_failure and extract_final_output.
-    """
-
-    def __init__(self, rate_limited_task_ids: set[str]):
-        self.rate_limited_task_ids = rate_limited_task_ids
-        self.spawned: list[str] = []
-        self._pi_runner = PiRunner()
-
-    async def spawn(self, config: RunnerConfig) -> RunnerResult:
-        from wave_server.engine.runner import _detect_pi_output_failure
-
-        self.spawned.append(config.task_id)
-
-        if config.task_id in self.rate_limited_task_ids:
-            stdout = _build_rate_limited_pi_output()
-            # Pi exits 0 despite rate limiting
-            exit_code = 0
-            stderr = ""
-
-            # Apply the same detection logic PiRunner.spawn() uses
-            detected = _detect_pi_output_failure(stdout)
-            if detected:
-                exit_code = 1
-                stderr = detected
-
-            return RunnerResult(
-                exit_code=exit_code,
-                stdout=stdout,
-                stderr=stderr,
-            )
-
-        # Normal success
-        stdout = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [{"type": "text", "text": f"Completed task {config.task_id}"}],
-                "stopReason": "stop",
-            }],
-        })
-        return RunnerResult(exit_code=0, stdout=stdout, stderr="")
-
-    def extract_final_output(self, stdout: str) -> str:
-        return self._pi_runner.extract_final_output(stdout)
 
 
 class TestRateLimitDetection:

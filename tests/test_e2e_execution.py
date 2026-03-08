@@ -1069,95 +1069,9 @@ class TestE2EEdgeCases:
 
 # ── Rate Limit Simulation (Pi Runtime) ─────────────────────────
 
+from pi_test_helpers import RateLimitPiMockRunner
 
-def _build_rate_limited_pi_output() -> str:
-    """Build realistic pi JSON output for a rate-limited task.
-
-    Simulates pi exiting 0 after all retries fail with 429 errors.
-    """
-    return "\n".join([
-        json.dumps({"type": "session", "version": 3, "id": "rl-test"}),
-        json.dumps({"type": "agent_start"}),
-        json.dumps({"type": "turn_start"}),
-        json.dumps({
-            "type": "turn_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-            "toolResults": [],
-        }),
-        json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            }],
-        }),
-        json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "attempt": 3,
-            "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-        }),
-    ])
-
-
-class RateLimitMockRunner:
-    """Mock runner that simulates PiRunner with rate-limited tasks.
-
-    Rate-limited tasks return exit_code=0 (like real pi) with error JSON output.
-    The runner applies _detect_pi_output_failure to override the exit code,
-    just like the real PiRunner.spawn() does.
-    """
-
-    def __init__(self, rate_limited_task_ids: set[str]):
-        self.rate_limited_task_ids = rate_limited_task_ids
-        self.spawned: list[str] = []
-
-    async def spawn(self, config: RunnerConfig) -> RunnerResult:
-        from wave_server.engine.runner import _detect_pi_output_failure
-
-        self.spawned.append(config.task_id)
-        await asyncio.sleep(0.01)
-
-        if config.task_id in self.rate_limited_task_ids:
-            stdout = _build_rate_limited_pi_output()
-            exit_code = 0  # Pi exits 0!
-            stderr = ""
-
-            # Apply same detection as real PiRunner.spawn()
-            detected = _detect_pi_output_failure(stdout)
-            if detected:
-                exit_code = 1
-                stderr = detected
-
-            return RunnerResult(
-                exit_code=exit_code, stdout=stdout, stderr=stderr,
-            )
-
-        # Normal success
-        output = f"Completed task {config.task_id}"
-        return RunnerResult(
-            exit_code=0,
-            stdout=json.dumps({"type": "result", "result": output}),
-            stderr="",
-        )
-
-    def extract_final_output(self, stdout: str) -> str:
-        for line in stdout.split("\n"):
-            try:
-                msg = json.loads(line)
-                if msg.get("type") == "result":
-                    return msg.get("result", "")
-            except (json.JSONDecodeError, KeyError):
-                continue
-        return "(rate limited — no output)"
-
-
-assert isinstance(RateLimitMockRunner(set()), AgentRunner)
+assert isinstance(RateLimitPiMockRunner(set()), AgentRunner)
 
 
 class TestE2ERateLimitDetection:
@@ -1172,7 +1086,7 @@ class TestE2ERateLimitDetection:
         emit task_failed event, and mark dependent tasks as skipped."""
         client = e2e_client
         # Task 1-2 gets rate limited → 1-3 (depends on 1-2) should be skipped
-        mock_runner = RateLimitMockRunner(rate_limited_task_ids={"1-2"})
+        mock_runner = RateLimitPiMockRunner(rate_limited_task_ids={"1-2"})
 
         project_id = await _create_project(client)
         await _register_repo(client, project_id, repo_dir)
@@ -1222,7 +1136,7 @@ class TestE2ERateLimitDetection:
     ):
         """When the first task is rate limited, all dependents are skipped."""
         client = e2e_client
-        mock_runner = RateLimitMockRunner(rate_limited_task_ids={"1-1"})
+        mock_runner = RateLimitPiMockRunner(rate_limited_task_ids={"1-1"})
 
         project_id = await _create_project(client)
         await _register_repo(client, project_id, repo_dir)

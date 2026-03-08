@@ -34,6 +34,11 @@ def _detect_pi_output_failure(stdout: str) -> str | None:
     auto_retry_error = ""
     last_agent_end_error = ""
     last_stop_reason = ""
+    # Tracks whether *any* retry attempt produced real work (text or tool calls).
+    # Intentionally not reset between retries: if any attempt did useful work,
+    # the non-retry fallback path won't flag it as a total failure.
+    # This is safe because auto_retry_end (which always wins) handles the
+    # retry-exhausted case regardless of this flag.
     had_any_successful_output = False
 
     for line in stdout.split("\n"):
