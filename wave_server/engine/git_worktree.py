@@ -634,6 +634,52 @@ async def cleanup_all(
             pass
 
 
+# ── Execution-Level Worktree ───────────────────────────────────
+
+
+async def create_execution_worktree(
+    repo_root: str, branch_name: str, start_point: str
+) -> tuple[str | None, str]:
+    """Create a git worktree for an execution's work branch.
+
+    Instead of checking out the work branch in the user's repo (which
+    disrupts their working tree), we create a worktree under
+    ``<repo>/.wave-worktrees/<branch_name>/``.
+
+    If the branch already exists (e.g. continue/rerun), the worktree is
+    attached to it.  Otherwise a new branch is created from *start_point*.
+
+    Returns ``(worktree_dir, error_message)``.  *worktree_dir* is ``None``
+    on failure.
+    """
+    worktree_dir = os.path.join(repo_root, ".wave-worktrees", _branch_slug(branch_name))
+
+    # If the directory already exists from a previous run, remove it first
+    if os.path.isdir(worktree_dir):
+        await _remove_worktree(repo_root, worktree_dir)
+
+    if await branch_exists(repo_root, branch_name):
+        # Branch exists — attach worktree to it
+        code, _, err = await _run_git(
+            ["worktree", "add", worktree_dir, branch_name], repo_root
+        )
+    else:
+        # New branch — create from start_point
+        code, _, err = await _run_git(
+            ["worktree", "add", "-b", branch_name, worktree_dir, start_point],
+            repo_root,
+        )
+
+    if code != 0:
+        return None, f"Failed to create execution worktree for {branch_name}: {err}"
+    return worktree_dir, ""
+
+
+async def remove_execution_worktree(repo_root: str, worktree_dir: str) -> None:
+    """Remove an execution-level worktree.  Best-effort, won't raise."""
+    await _remove_worktree(repo_root, worktree_dir)
+
+
 # ── Execution Branch Management ────────────────────────────────
 
 
