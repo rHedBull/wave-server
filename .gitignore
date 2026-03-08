@@ -24,9 +24,14 @@ IDEAS.md
 
 # Screenshots and generated images
 *.png
+# Exception: wave icon used by dashboard and desktop launcher
+!wave-icon.png
+!dashboard/public/wave-icon.png
 
 # Playwright MCP logs
 .playwright-mcp/
 
 # Desktop entry (local)
 *.desktop
+# Exception: wave-server launcher (part of repo)
+!wave-server.desktop

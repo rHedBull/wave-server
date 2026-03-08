@@ -98,6 +98,7 @@ export default function ProjectDetailPage({
       <SpaceBetween size="l">
         <Header
           variant="h1"
+          description={<CopyableId id={id} label="Project" />}
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               <Button onClick={() => router.push(`/projects/${id}/settings`)}>
