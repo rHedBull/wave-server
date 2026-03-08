@@ -1,10 +1,30 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, text, TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
 
 from wave_server.db import Base
+
+
+class TZDateTime(TypeDecorator):
+    """A DateTime type that ensures UTC timezone info survives SQLite round-trips.
+
+    SQLite stores datetimes as naive strings, stripping timezone info.
+    This decorator re-attaches UTC on reads so Pydantic serialises with +00:00
+    and browsers can convert to local time correctly.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def __init__(self):
+        super().__init__(timezone=True)
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 def _uuid() -> str:
@@ -23,9 +43,9 @@ class Project(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     api_key: Mapped[str] = mapped_column(String, unique=True, default=_uuid)
     env_vars: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        TZDateTime(), default=_now, onupdate=_now
     )
 
 
@@ -44,9 +64,9 @@ class Sequence(Base):
     plan_path: Mapped[str | None] = mapped_column(String, nullable=True)
     wave_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     task_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        TZDateTime(), default=_now, onupdate=_now
     )
 
 
@@ -74,12 +94,12 @@ class Execution(Base):
     git_sha_before: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_after: Mapped[str | None] = mapped_column(String, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        TZDateTime(), nullable=True
     )
     finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        TZDateTime(), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
 
 
 class Event(Base):
@@ -94,7 +114,7 @@ class Event(Base):
     task_id: Mapped[str | None] = mapped_column(String, nullable=True)
     phase: Mapped[str | None] = mapped_column(String, nullable=True)
     payload: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
 
 
 class Command(Base):
@@ -115,9 +135,9 @@ class Command(Base):
     action: Mapped[str | None] = mapped_column(String, nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     picked_up: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
     resolved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        TZDateTime(), nullable=True
     )
 
 
@@ -128,7 +148,7 @@ class ProjectRepository(Base):
     project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     path: Mapped[str] = mapped_column(String, nullable=False)
     label: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
 
 
 class ProjectContextFile(Base):
@@ -138,4 +158,4 @@ class ProjectContextFile(Base):
     project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     path: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
