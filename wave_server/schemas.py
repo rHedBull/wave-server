@@ -106,6 +106,11 @@ class ExecutionCreate(BaseModel):
     agent_models: dict[str, str] | None = None
 
 
+class RerunRequest(BaseModel):
+    task_ids: list[str]
+    cascade: bool = True
+
+
 class ExecutionResponse(BaseModel):
     id: str
     sequence_id: str
