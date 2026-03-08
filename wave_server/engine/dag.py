@@ -240,56 +240,119 @@ async def execute_dag(
     tasks: list[Task],
     run_task: Callable[[Task], Awaitable[TaskResult]],
     max_concurrency: int,
+    *,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> list[TaskResult]:
-    """Execute tasks respecting DAG order.
+    """Execute tasks respecting DAG order with ready-queue scheduling.
 
-    Tasks at the same level run concurrently. If a task fails,
-    downstream dependents are skipped.
+    Instead of processing level-by-level (where ALL tasks at level N must
+    finish before ANY task at level N+1 starts), tasks are launched as soon
+    as all their dependencies have completed.  This maximises parallelism
+    within the concurrency limit.
+
+    If a *semaphore* is provided it is used for concurrency control instead
+    of creating a local one.  This allows a single semaphore to be shared
+    across foundation, features, and integration phases so the global
+    ``max_concurrency`` limit is truly enforced.
+
+    If a task fails, downstream dependents are skipped.
     """
-    levels = build_dag(tasks)
+    if not tasks:
+        return []
+
+    task_map = {t.id: t for t in tasks}
     result_map: dict[str, TaskResult] = {}
     failed_ids: set[str] = set()
+    completed_ids: set[str] = set()
 
-    def should_skip(task: Task) -> bool:
-        return any(dep in failed_ids for dep in task.depends)
+    # Reverse dependency map: task_id → tasks that list it as a dependency
+    dependents: dict[str, set[str]] = defaultdict(set)
+    for task in tasks:
+        for dep in task.depends:
+            dependents[dep].add(task.id)
 
-    for level in levels:
-        level_results = await map_concurrent(
-            level.tasks,
-            max_concurrency,
-            async_fn_factory(run_task, should_skip, failed_ids),
-        )
-        for result in level_results:
-            result_map[result.id] = result
+    # Number of unsatisfied dependencies per task
+    remaining_deps: dict[str, int] = {t.id: len(t.depends) for t in tasks}
+
+    sem = semaphore or asyncio.Semaphore(max_concurrency)
+    tasks_left = len(tasks)
+    all_done = asyncio.Event()
+    in_flight: set[asyncio.Task[None]] = set()
+    fatal_exception: BaseException | None = None
+
+    def _launch(task: Task) -> None:
+        """Schedule a task for execution."""
+
+        async def _run() -> None:
+            nonlocal tasks_left, fatal_exception
+
+            try:
+                # Skip if any dependency failed
+                if any(dep in failed_ids for dep in task.depends):
+                    result = TaskResult(
+                        id=task.id,
+                        title=task.title,
+                        agent=task.agent,
+                        exit_code=-1,
+                        output="Skipped: dependency failed",
+                        stderr="",
+                        duration_ms=0,
+                    )
+                    failed_ids.add(task.id)
+                    result_map[task.id] = result
+                else:
+                    async with sem:
+                        result = await run_task(task)
+                    result_map[task.id] = result
+                    if result.exit_code != 0:
+                        failed_ids.add(task.id)
+            except Exception as exc:
+                # Fatal: store exception.  Don't enqueue dependents —
+                # running tasks will finish naturally, then we re-raise.
+                if fatal_exception is None:
+                    fatal_exception = exc
+                failed_ids.add(task.id)
+
+            completed_ids.add(task.id)
+            tasks_left -= 1
+
+            if fatal_exception is not None:
+                # Aborting — signal done when no more tasks are in flight
+                # (the done_callback hasn't fired yet for *this* task,
+                # so in_flight still includes us — check for <= 1)
+                if len(in_flight) <= 1:
+                    all_done.set()
+            else:
+                # Enqueue dependents whose dependencies are now fully satisfied
+                for dep_id in dependents.get(task.id, set()):
+                    if dep_id not in completed_ids:
+                        remaining_deps[dep_id] -= 1
+                        if remaining_deps[dep_id] == 0:
+                            _launch(task_map[dep_id])
+
+                if tasks_left == 0:
+                    all_done.set()
+
+        aio_task = asyncio.create_task(_run())
+        in_flight.add(aio_task)
+        aio_task.add_done_callback(in_flight.discard)
+
+    # Seed with root tasks (no dependencies)
+    for task in tasks:
+        if remaining_deps[task.id] == 0:
+            _launch(task)
+
+    await all_done.wait()
+
+    # Wait for any remaining in-flight tasks to finish before re-raising.
+    # We do NOT cancel them — cancellation sends CancelledError which can
+    # interrupt DB operations in callbacks, corrupting shared connections.
+    if in_flight:
+        await asyncio.gather(*in_flight, return_exceptions=True)
+    if fatal_exception is not None:
+        raise fatal_exception
 
     return [result_map[t.id] for t in tasks]
-
-
-def async_fn_factory(
-    run_task: Callable[[Task], Awaitable[TaskResult]],
-    should_skip: Callable[[Task], bool],
-    failed_ids: set[str],
-) -> Callable[[Task, int], Awaitable[TaskResult]]:
-    async def fn(task: Task, _idx: int) -> TaskResult:
-        if should_skip(task):
-            skipped = TaskResult(
-                id=task.id,
-                title=task.title,
-                agent=task.agent,
-                exit_code=-1,
-                output="Skipped: dependency failed",
-                stderr="",
-                duration_ms=0,
-            )
-            failed_ids.add(task.id)
-            return skipped
-
-        result = await run_task(task)
-        if result.exit_code != 0:
-            failed_ids.add(task.id)
-        return result
-
-    return fn
 
 
 def compute_dirty_closure(plan: Plan, rerun_ids: set[str], cascade: bool = True) -> set[str]:
