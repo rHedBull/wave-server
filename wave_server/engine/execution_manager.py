@@ -100,15 +100,22 @@ def _get_git_sha(cwd: str) -> str | None:
 
 
 async def launch_execution(
-    execution_id: str, sequence_id: str, continue_from: str | None = None
+    execution_id: str,
+    sequence_id: str,
+    continue_from: str | None = None,
+    rerun_task_ids: set[str] | None = None,
+    rerun_cascade: bool = True,
 ) -> None:
     """Launch a background execution task.
 
     If *continue_from* is set, the new execution resumes where the previous
     one left off — already-completed tasks are skipped.
+
+    If *rerun_task_ids* is also set, only the specified tasks (and optionally
+    their downstream dependents when *rerun_cascade* is True) are re-executed.
     """
     task = asyncio.create_task(
-        _run_execution(execution_id, sequence_id, continue_from)
+        _run_execution(execution_id, sequence_id, continue_from, rerun_task_ids, rerun_cascade)
     )
     _active_tasks[execution_id] = task
     task.add_done_callback(lambda _: _active_tasks.pop(execution_id, None))
@@ -159,7 +166,11 @@ async def _get_completed_task_ids(
 
 
 async def _run_execution(
-    execution_id: str, sequence_id: str, continue_from: str | None = None
+    execution_id: str,
+    sequence_id: str,
+    continue_from: str | None = None,
+    rerun_task_ids: set[str] | None = None,
+    rerun_cascade: bool = True,
 ) -> None:
     """Background task that runs the full wave execution."""
     # Lock to serialize all DB writes — prevents SQLite "database is locked"
@@ -383,6 +394,13 @@ async def _run_execution(
             skip_task_ids: set[str] = set()
             if continue_from:
                 skip_task_ids = await _get_completed_task_ids(db, continue_from)
+
+                # For rerun: remove dirty tasks from the skip set
+                if rerun_task_ids:
+                    from wave_server.engine.dag import compute_dirty_closure
+                    dirty = compute_dirty_closure(plan, rerun_task_ids, cascade=rerun_cascade)
+                    skip_task_ids -= dirty
+
                 # Pre-mark completed tasks in state so DAG dependencies are satisfied
                 for tid in skip_task_ids:
                     mark_task_done(state, tid)
@@ -400,11 +418,18 @@ async def _run_execution(
             )
             exec_logger.execution_started()
 
-            if skip_task_ids:
-                exec_logger.log(
-                    f"♻️  Continuing from execution {continue_from[:8]}… "
-                    f"— {len(skip_task_ids)} completed tasks will be skipped"
-                )
+            if skip_task_ids and continue_from:
+                if rerun_task_ids:
+                    exec_logger.log(
+                        f"🔄  Rerunning from execution {continue_from[:8]}… "
+                        f"— {len(skip_task_ids)} completed tasks will be skipped"
+                        + (" (cascade)" if rerun_cascade else " (isolated)")
+                    )
+                else:
+                    exec_logger.log(
+                        f"♻️  Continuing from execution {continue_from[:8]}… "
+                        f"— {len(skip_task_ids)} completed tasks will be skipped"
+                    )
 
             def _flush_log():
                 """Write execution log to disk (called frequently for live tailing)."""

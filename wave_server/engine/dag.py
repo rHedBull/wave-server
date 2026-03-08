@@ -290,3 +290,68 @@ def async_fn_factory(
         return result
 
     return fn
+
+
+def compute_dirty_closure(plan: Plan, rerun_ids: set[str], cascade: bool = True) -> set[str]:
+    """Compute the full set of task IDs that must be re-executed.
+
+    Args:
+        plan: The parsed execution plan.
+        rerun_ids: Task IDs explicitly selected for rerun.
+        cascade: If True, include all transitive downstream dependents
+                 and apply implicit cross-section cascading.
+                 If False, return only the selected task IDs.
+
+    Returns:
+        The set of task IDs that should NOT be skipped (i.e. must run).
+    """
+    if not cascade:
+        return set(rerun_ids)
+
+    dirty: set[str] = set(rerun_ids)
+
+    for wave in plan.waves:
+        # Collect all tasks in this wave by section
+        all_tasks: list[Task] = []
+        foundation_ids: set[str] = set()
+        feature_ids: set[str] = set()
+        integration_ids: set[str] = set()
+
+        for t in wave.foundation:
+            all_tasks.append(t)
+            foundation_ids.add(t.id)
+        for feature in wave.features:
+            for t in feature.tasks:
+                all_tasks.append(t)
+                feature_ids.add(t.id)
+        for t in wave.integration:
+            all_tasks.append(t)
+            integration_ids.add(t.id)
+
+        # Build forward adjacency (task -> its dependents)
+        forward: dict[str, list[str]] = defaultdict(list)
+        for t in all_tasks:
+            for dep in t.depends:
+                forward[dep].append(t.id)
+
+        # Walk explicit DAG edges forward from dirty tasks in this wave
+        wave_ids = {t.id for t in all_tasks}
+        queue = [tid for tid in dirty if tid in wave_ids]
+        visited: set[str] = set(queue)
+        while queue:
+            current = queue.pop(0)
+            for dependent in forward.get(current, []):
+                if dependent not in visited:
+                    visited.add(dependent)
+                    dirty.add(dependent)
+                    queue.append(dependent)
+
+        # Implicit cross-section cascading:
+        # - dirty foundation task → all features + integration dirty
+        # - dirty feature task → all integration dirty
+        if dirty & foundation_ids:
+            dirty |= feature_ids | integration_ids
+        elif dirty & feature_ids:
+            dirty |= integration_ids
+
+    return dirty

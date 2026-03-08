@@ -448,6 +448,66 @@ async def test_cancel_execution(client: AsyncClient, ready_sequence):
     assert r.json()["status"] == "cancelled"
 
 
+# --- Rerun ---
+
+
+@pytest.mark.asyncio
+async def test_rerun_execution(client: AsyncClient, ready_sequence):
+    """Rerun creates a new execution with trigger='rerun'."""
+    sid = ready_sequence["sequence_id"]
+    exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
+    eid = exc.json()["id"]
+    # Cancel it so it's in a terminal state
+    await client.post(f"/api/v1/executions/{eid}/cancel")
+    r = await client.post(
+        f"/api/v1/executions/{eid}/rerun",
+        json={"task_ids": ["1a"], "cascade": True},
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["trigger"] == "rerun"
+    assert data["continued_from"] == eid
+
+
+@pytest.mark.asyncio
+async def test_rerun_running_execution_rejected(client: AsyncClient, ready_sequence):
+    """Cannot rerun an execution that is still running."""
+    sid = ready_sequence["sequence_id"]
+    exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
+    eid = exc.json()["id"]
+    # Don't cancel — it's pending/running
+    r = await client.post(
+        f"/api/v1/executions/{eid}/rerun",
+        json={"task_ids": ["1a"]},
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rerun_unknown_task_ids(client: AsyncClient, ready_sequence):
+    """Unknown task IDs are rejected with 422."""
+    sid = ready_sequence["sequence_id"]
+    exc = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
+    eid = exc.json()["id"]
+    await client.post(f"/api/v1/executions/{eid}/cancel")
+    r = await client.post(
+        f"/api/v1/executions/{eid}/rerun",
+        json={"task_ids": ["nonexistent-task"]},
+    )
+    assert r.status_code == 422
+    assert "nonexistent-task" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_rerun_not_found(client: AsyncClient):
+    """Rerun on non-existent execution returns 404."""
+    r = await client.post(
+        "/api/v1/executions/no-such-id/rerun",
+        json={"task_ids": ["t1"]},
+    )
+    assert r.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_delete_project_cascades(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "cascade"})

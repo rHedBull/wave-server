@@ -17,6 +17,7 @@ from wave_server.schemas import (
     EventResponse,
     ExecutionCreate,
     ExecutionResponse,
+    RerunRequest,
 )
 from wave_server import storage
 
@@ -191,6 +192,67 @@ async def continue_execution(
     await db.refresh(new_exec)
     from wave_server.engine.execution_manager import launch_execution
     await launch_execution(new_exec.id, exc.sequence_id, continue_from=execution_id)
+    return new_exec
+
+
+@router.post(
+    "/executions/{execution_id}/rerun",
+    response_model=ExecutionResponse,
+    status_code=201,
+)
+async def rerun_execution(
+    execution_id: str, body: RerunRequest, db: AsyncSession = Depends(get_db)
+):
+    exc = await db.get(Execution, execution_id)
+    if not exc:
+        raise HTTPException(404, "Execution not found")
+    if exc.status not in ("completed", "failed", "cancelled"):
+        raise HTTPException(400, "Execution must be completed, failed, or cancelled to rerun tasks")
+    seq = await db.get(Sequence, exc.sequence_id)
+    if not seq:
+        raise HTTPException(404, "Sequence not found")
+    await _preflight(exc.sequence_id, seq.project_id, db)
+
+    # Validate that requested task IDs exist in the plan
+    plan_content = storage.read_plan(exc.sequence_id)
+    from wave_server.engine.plan_parser import parse_plan as _parse
+    plan = _parse(plan_content)
+    all_plan_ids: set[str] = set()
+    for wave in plan.waves:
+        for t in wave.foundation:
+            all_plan_ids.add(t.id)
+        for feature in wave.features:
+            for t in feature.tasks:
+                all_plan_ids.add(t.id)
+        for t in wave.integration:
+            all_plan_ids.add(t.id)
+    unknown = set(body.task_ids) - all_plan_ids
+    if unknown:
+        raise HTTPException(
+            422, f"Unknown task IDs: {', '.join(sorted(unknown))}"
+        )
+
+    new_exec = Execution(
+        sequence_id=exc.sequence_id,
+        continued_from=execution_id,
+        trigger="rerun",
+        runtime=exc.runtime,
+        config=exc.config,
+        source_branch=exc.source_branch,
+        source_sha=exc.source_sha,
+        work_branch=exc.work_branch,
+    )
+    db.add(new_exec)
+    await db.commit()
+    await db.refresh(new_exec)
+    from wave_server.engine.execution_manager import launch_execution
+    await launch_execution(
+        new_exec.id,
+        exc.sequence_id,
+        continue_from=execution_id,
+        rerun_task_ids=set(body.task_ids),
+        rerun_cascade=body.cascade,
+    )
     return new_exec
 
 
