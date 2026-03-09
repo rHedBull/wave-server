@@ -453,17 +453,17 @@ class TestE2ESimplePlan:
             execution_id = await _start_execution(client, sequence_id)
             await _poll_execution(client, execution_id)
 
-        # Worker task gets implementation prompt
-        assert "implementing code" in mock_runner.prompts["1-1"].lower()
+        # Worker task gets its task details in prompt
         assert "src/greet.py" in mock_runner.prompts["1-1"]
+        assert "1-1" in mock_runner.prompts["1-1"]
 
-        # Test writer gets test prompt
-        assert "writing tests" in mock_runner.prompts["1-2"].lower()
+        # Test writer gets its task details in prompt
         assert "tests/test_greet.py" in mock_runner.prompts["1-2"]
+        assert "1-2" in mock_runner.prompts["1-2"]
 
-        # Verifier gets verification prompt
+        # Verifier gets its task details in prompt
         assert "verifying" in mock_runner.prompts["1-3"].lower()
-        assert "Do NOT modify" in mock_runner.prompts["1-3"]
+        assert "1-3" in mock_runner.prompts["1-3"]
 
 
 class TestE2EMultiWavePlan:

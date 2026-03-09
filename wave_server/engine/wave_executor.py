@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
+import re
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from wave_server.engine.dag import execute_dag, map_concurrent
@@ -333,6 +336,58 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     )
 
 
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
+
+_FALLBACK_ROLES = {
+    "wave-verifier": "You are verifying completed work.",
+    "test-writer": "You are writing tests.",
+}
+
+_agent_role_cache: dict[str, str | None] = {}
+
+log = logging.getLogger(__name__)
+
+
+_BUILTIN_AGENTS_DIR = Path(__file__).resolve().parent.parent.parent / "agents"
+
+
+def _load_agent_role(agent_name: str) -> str:
+    """Load role instructions from an agent .md file.
+
+    Resolution order:
+      1. settings.agents_dir / {agent_name}.md  (user override)
+      2. <wave-server-repo>/agents/{agent_name}.md  (built-in)
+      3. Hardcoded fallback (one-liner)
+    """
+    if agent_name in _agent_role_cache:
+        cached = _agent_role_cache[agent_name]
+        if cached is not None:
+            return cached
+        return _FALLBACK_ROLES.get(agent_name, "You are implementing code.")
+
+    from wave_server.config import settings
+
+    candidates: list[Path] = []
+    if settings.agents_dir:
+        candidates.append(Path(settings.agents_dir) / f"{agent_name}.md")
+    candidates.append(_BUILTIN_AGENTS_DIR / f"{agent_name}.md")
+
+    for path in candidates:
+        if path.is_file():
+            try:
+                content = path.read_text(encoding="utf-8")
+                # Strip YAML frontmatter
+                content = _FRONTMATTER_RE.sub("", content).strip()
+                _agent_role_cache[agent_name] = content
+                log.info("Loaded agent role from %s", path)
+                return content
+            except OSError:
+                continue
+
+    _agent_role_cache[agent_name] = None
+    return _FALLBACK_ROLES.get(agent_name, "You are implementing code.")
+
+
 def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project_structure: str = "", environment: str = "", project_context: str = "") -> str:
     """Build the prompt sent to the agent subprocess."""
     schemas_block = (
@@ -345,52 +400,24 @@ def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project
     legacy_ctx = f"\n{project_context}\n" if project_context else ""
     context_block = f"{structure_block}{env_block}{legacy_ctx}"
 
+    role = _load_agent_role(task.agent)
+
+    # Build task-specific context
     if task.agent == "wave-verifier":
-        return f"""You are verifying completed work.
-{schemas_block}{context_block}
-## Your Task
-**{task.id}: {task.title}**
-{f"Files to check: {', '.join(task.files)}" if task.files else ""}
-
-{task.description}
-
-IMPORTANT — verify in this order:
-1. File existence — check that required files exist
-2. Syntax/compilation — run the compiler/linter
-3. Tests — run the test suite
-4. Completeness — verify implementation matches task descriptions
-- Do NOT modify any files
-- Work continuously — do NOT stop to summarize progress or wait for feedback"""
-    elif task.agent == "test-writer":
-        return f"""You are writing tests.
-{schemas_block}{context_block}
-## Your Task
-**{task.id}: {task.title}**
-Files: {', '.join(task.files)}
-
-{task.description}
-
-IMPORTANT:
-- Only create/modify TEST files listed for this task
-- Follow existing test patterns
-- Use exact names from Data Schemas above
-- Work continuously — do NOT stop to summarize progress or wait for feedback"""
+        files_line = f"Files to check: {', '.join(task.files)}" if task.files else ""
     else:
-        test_context = (
-            f"\nTests to satisfy: {', '.join(task.test_files)}\nYour implementation MUST make these tests pass."
-            if task.test_files
-            else ""
-        )
-        return f"""You are implementing code.
+        files_line = f"Files: {', '.join(task.files)}" if task.files else ""
+
+    test_context = ""
+    if task.agent not in ("wave-verifier", "test-writer") and task.test_files:
+        test_context = f"\nTests to satisfy: {', '.join(task.test_files)}\nYour implementation MUST make these tests pass."
+
+    return f"""{role}
 {schemas_block}{context_block}
 ## Your Task
 **{task.id}: {task.title}**
-Files: {', '.join(task.files)}{test_context}
+{files_line}{test_context}
 
 {task.description}
 
-IMPORTANT:
-- Only modify files listed for this task
-- Follow the spec requirements exactly
-- Use exact names from Data Schemas above
 - Work continuously — do NOT stop to summarize progress or wait for feedback"""

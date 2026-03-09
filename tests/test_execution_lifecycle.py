@@ -577,18 +577,17 @@ class TestPromptBuilding:
         task = _task("1-1", files=["src/main.py"])
         prompt = _build_task_prompt(task, spec_content="", data_schemas="")
         assert "src/main.py" in prompt
-        assert "implementing code" in prompt.lower()
+        assert "1-1" in prompt
 
     def test_verifier_prompt(self):
         task = _task("1-1", agent="wave-verifier", files=["src/main.py"])
         prompt = _build_task_prompt(task, spec_content="", data_schemas="")
         assert "verifying" in prompt.lower()
-        assert "Do NOT modify" in prompt
 
     def test_test_writer_prompt(self):
         task = _task("1-1", agent="test-writer", files=["tests/test_main.py"])
         prompt = _build_task_prompt(task, spec_content="", data_schemas="")
-        assert "writing tests" in prompt.lower()
+        assert "tests/test_main.py" in prompt
 
     def test_schemas_injected(self):
         task = _task("1-1")
