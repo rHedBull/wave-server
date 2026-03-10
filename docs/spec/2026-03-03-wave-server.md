@@ -17,7 +17,7 @@ Any client (Claude Code skill, CLI, curl, any agent) can trigger and monitor exe
 ## Architecture
 
 ```
-Clients                         Server (localhost:8000)            Workers
+Clients                         Server (localhost:9718)            Workers
 -------                         ----------------------            -------
 Claude Code skill  -+
 CLI `waves exec`   -+-->  FastAPI REST API

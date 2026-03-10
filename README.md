@@ -18,7 +18,7 @@ Start the server:
 ```sh
 uv run main.py
 # or
-uvicorn wave_server.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn wave_server.main:app --host 0.0.0.0 --port 9718 --reload
 ```
 
 Run tests:
@@ -55,37 +55,37 @@ Start the dashboard (separate terminal):
 
 ```sh
 cd dashboard
-cp .env.example .env.local  # sets NEXT_PUBLIC_API_URL=http://localhost:8000/api
+cp .env.example .env.local  # sets NEXT_PUBLIC_API_URL=http://localhost:9718/api
 npm install
 npm run dev
-# opens http://localhost:3000
+# opens http://localhost:9719
 ```
 
 ### Quick walkthrough
 
 ```sh
 # Create a project
-curl -s -X POST http://localhost:8000/api/projects \
+curl -s -X POST http://localhost:9718/api/projects \
   -H 'Content-Type: application/json' \
   -d '{"name": "my-project"}' | jq .
 
 # Create a sequence under the project
-curl -s -X POST http://localhost:8000/api/projects/{project_id}/sequences \
+curl -s -X POST http://localhost:9718/api/projects/{project_id}/sequences \
   -H 'Content-Type: application/json' \
   -d '{"name": "add-oauth"}' | jq .
 
 # Upload a plan (raw markdown body)
-curl -s -X POST http://localhost:8000/api/sequences/{sequence_id}/plan \
+curl -s -X POST http://localhost:9718/api/sequences/{sequence_id}/plan \
   -H 'Content-Type: text/plain' \
   --data-binary @plan.md
 
 # Start an execution
-curl -s -X POST http://localhost:8000/api/sequences/{sequence_id}/executions \
+curl -s -X POST http://localhost:9718/api/sequences/{sequence_id}/executions \
   -H 'Content-Type: application/json' \
   -d '{}' | jq .
 
 # Poll execution status
-curl -s http://localhost:8000/api/executions/{execution_id} | jq .
+curl -s http://localhost:9718/api/executions/{execution_id} | jq .
 ```
 
 ## Configuration
@@ -99,7 +99,7 @@ All settings use the `WAVE_` env prefix:
 | `WAVE_DEFAULT_CONCURRENCY` | `4` | Max parallel tasks per execution |
 | `WAVE_DEFAULT_TIMEOUT_MS` | `300000` | Task timeout (5 minutes) |
 | `WAVE_RUNTIME` | `claude` | Default agent runtime |
-| `WAVE_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
+| `WAVE_CORS_ORIGINS` | `["http://localhost:9719"]` | Allowed CORS origins |
 
 ## Project structure
 

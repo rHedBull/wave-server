@@ -12,7 +12,7 @@ LOG_DIR="$PROJECT_DIR/data/logs"
 mkdir -p "$LOG_DIR"
 
 # Kill any existing processes on our ports
-for port in 8000 3000; do
+for port in 9718 9719; do
     pids=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
     for pid in $pids; do
         echo "Killing existing process on port $port (PID $pid) ..."
@@ -31,22 +31,22 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Start backend
-echo "Starting backend (http://localhost:8000) ..."
+echo "Starting backend (http://localhost:9718) ..."
 cd "$PROJECT_DIR"
-uv run uvicorn wave_server.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 &
+uv run uvicorn wave_server.main:app --host 0.0.0.0 --port 9718 > "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 
 # Build and start dashboard in production mode
 echo "Building dashboard ..."
 cd "$DASHBOARD_DIR"
 npm run build > "$LOG_DIR/dashboard-build.log" 2>&1
-echo "Starting dashboard (http://localhost:3000) ..."
+echo "Starting dashboard (http://localhost:9719) ..."
 npm run start > "$LOG_DIR/dashboard.log" 2>&1 &
 DASHBOARD_PID=$!
 
 # Wait for backend to be ready
 for i in $(seq 1 30); do
-    if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
+    if curl -sf http://localhost:9718/api/health > /dev/null 2>&1; then
         echo "Backend ready."
         break
     fi
@@ -55,7 +55,7 @@ done
 
 # Open dashboard in default browser
 if command -v xdg-open &>/dev/null; then
-    xdg-open http://localhost:3000 > /dev/null 2>&1 &
+    xdg-open http://localhost:9719 > /dev/null 2>&1 &
 fi
 
 echo "Wave Server running. Press Ctrl+C to stop."
