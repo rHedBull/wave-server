@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     git_committer_email: str | None = None
     git_signing_key: str | None = None
     agents_dir: Path | None = None  # directory with agent .md files; falls back to hardcoded prompts
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+    cors_origins: list[str] = ["http://localhost:9719", "http://localhost:9720"]
 
     @property
     def db_url(self) -> str:

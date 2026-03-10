@@ -5,7 +5,7 @@
 Wave Server is a FastAPI application that orchestrates multi-agent code execution. Clients submit plans (structured markdown), the server parses them into a DAG, spawns Claude Code subprocesses to execute tasks, and records progress in SQLite.
 
 ```
-Clients                         Server (localhost:8000)            Workers
+Clients                         Server (localhost:9718)            Workers
 -------                         ----------------------            -------
 Claude Code skill  -+
 CLI / curl         -+-->  FastAPI REST API
@@ -222,8 +222,8 @@ Each eval pre-plants fixture files in a temp git repo, runs execution through th
 |-----------|-----------|------------|
 | Database | SQLite | Supabase Postgres (change `DATABASE_URL`) |
 | Storage | Local filesystem | Cloudflare R2 (swap `storage.py`) |
-| Dashboard | localhost:3000 | Vercel |
-| Server | localhost:8000 | EC2 / Fly.io |
+| Dashboard | localhost:9719 | Vercel |
+| Server | localhost:9718 | EC2 / Fly.io |
 | Auth | None | Single bearer token |
 
 Abstraction boundaries (`storage.py`, `db.py`, `auth.py`) make these swaps mechanical.

@@ -438,8 +438,8 @@ wave-server/
 |-----------|-----------|------------|
 | Database | SQLite file | Supabase Postgres (change DATABASE_URL) |
 | Storage | Local filesystem | Cloudflare R2 (swap storage.py) |
-| Dashboard | localhost:3000 | Vercel |
-| Server | localhost:8000 | EC2 / Fly.io / Railway |
+| Dashboard | localhost:9719 | Vercel |
+| Server | localhost:9718 | EC2 / Fly.io / Railway |
 | Auth | None (localhost) | Single bearer token |
 | Realtime | REST polling | + Supabase Realtime subscriptions |
 
