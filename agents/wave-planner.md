@@ -118,7 +118,11 @@ Parallel agents cannot see each other's work. Without a shared schema section:
 
 The Data Schemas section is passed to every agent automatically. It's the contract they all code against.
 
-## Code Hints in Task Descriptions
+## Task Description Quality (CRITICAL)
+
+Task descriptions are the #1 factor in execution success. Each agent can ONLY see its own task description plus the Data Schemas section. It cannot see other tasks, the full spec, or the full plan. Every task description must be **self-contained and specific enough** that an agent can implement it without guessing.
+
+### Code Hints
 
 Each task description MUST include small, targeted code snippets:
 - Function signatures with parameter types and return types
@@ -129,13 +133,41 @@ Each task description MUST include small, targeted code snippets:
 
 Keep snippets under 10-15 lines. Show the interface, not the implementation.
 
+### Quality Rules
+
+1. **No vague descriptions** — Every task must specify exactly what to build, not just name it. Bad: "Implement the UserList component". Good: Describe the props, the data it fetches, the layout structure, the interactions, the states, and include code hints.
+2. **Max 3-5 files per task** — If a task touches more files, split it. A task creating 10+ files means each file gets a one-liner description and the agent has to improvise. Foundation scaffolding (config files, package.json, etc.) is the exception.
+3. **Include exact signatures and shapes** — For backend: endpoint path, HTTP method, request body, response shape, status codes, query params, error cases. For frontend: component props, hooks, data shapes, exact library components to use.
+4. **Describe behavior, not just structure** — Don't say "add filtering". Say: "Filter by status via dropdown. Options: All, Active, Done. Default: Active. Changing the filter calls the API with `?status=active`. Show active filter count in dropdown label."
+5. **Error and edge cases in every task** — What happens on 404? Empty list? Validation failure? Network error? Agents won't handle cases they don't know about.
+
+### UI Task Rules
+
+When the plan includes frontend/UI work:
+
+6. **Inline the design details** — Paste the relevant screen spec, layout, and states directly into the task. Don't say "see the spec" — agents can't see the spec.
+7. **Include all states** — For every component: default, empty, loading, error. Describe what each state renders.
+8. **Include visual structure** — ASCII wireframes or structured layout descriptions showing spatial arrangement:
+   ```
+   ┌─ Header: "Items" + Button(primary, "New Item") ─────────┐
+   │ FilterBar: StatusDropdown + SearchInput                   │
+   ├───────────────────────────────────────────────────────────┤
+   │ Table(sortable, clickable rows)                           │
+   │ Empty: "No items yet. Create your first." + CTA button   │
+   │ Loading: Skeleton(rows=5)                                 │
+   └───────────────────────────────────────────────────────────┘
+   ```
+9. **Name exact components** — If using a component library, name the specific components: "Use MUI `DataGrid` with `columns` prop" not "use a data table".
+10. **One complex component per task** — Gantt charts, rich editors, drag-and-drop boards each get their own task. Simple components (badges, forms) can share a task.
+
 ## Targets
 
 - **2-5 waves** for a typical project
-- **2-6 features per wave** (more features = more parallelism)
+- **2-8 features per wave** (more features = more parallelism)
 - **2-6 tasks per feature** (TDD cycle + verification)
-- **Foundation: 2-4 tasks** (contracts + scaffolding + verify)
+- **Foundation: 2-6 tasks** (split large foundations — don't put 25 files in one task)
 - **Integration: 1-3 tasks** (glue + full verification)
+- **Max 3-5 files per task** (except boilerplate scaffolding)
 
 ## Output Format
 
@@ -339,4 +371,14 @@ If the spec has an **Integration Strategy** section:
 - If replacing: plan adapter → new impl → switchover across waves
 - Legacy cleanup goes in the final wave
 
-**Think in milestones. Each wave delivers working code. Features run in parallel. Foundation creates shared contracts. Integration wires everything together.**
+### UI Planning
+
+If the spec includes a UI/UX Design section:
+- Include a `## UI Design Reference` section in the plan (after Data Schemas) with: design system, screen inventory, shared patterns (form style, list style, empty states, loading, error)
+- Every UI task description must inline the relevant layout, components, and states — agents can't see the spec
+- Separate layout/shell (foundation) from content components (features)
+- Integration wires routes, nav entries, context providers
+
+If the spec needs UI but has no UI/UX Design section, add a note in the plan that UI details are underspecified and agent output will be inconsistent.
+
+**Think in milestones. Each wave delivers working code. Features run in parallel. Foundation creates shared contracts. Integration wires everything together. Task descriptions are complete briefs — agents can only see their own task.**
