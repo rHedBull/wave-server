@@ -4,6 +4,10 @@ on:
     branches: [main]
     types: [opened, synchronize]
 
+permissions:
+  pull-requests: write
+  contents: read
+
 jobs:
   review:
     uses: rHedBull/auto-agents/.github/workflows/pi-pr-review.yml@main
