@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from wave_server.config import settings
 from wave_server.db import get_db
 from wave_server.engine.dag import validate_plan
 from wave_server.engine.plan_parser import parse_plan
@@ -108,7 +109,7 @@ async def create_execution(
     )
     execution = Execution(
         sequence_id=sequence_id,
-        runtime=body.runtime or "claude",
+        runtime=body.runtime or settings.runtime,
         config=config,
         source_branch=body.source_branch,
         source_sha=body.source_sha,

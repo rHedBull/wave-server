@@ -102,7 +102,7 @@ class ExecutionLogger:
     """
 
     execution_id: str
-    runtime: str = "claude"
+    runtime: str = "pi"
     total_tasks: int = 0
     max_concurrency: int = 4
     goal: str = ""
