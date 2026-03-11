@@ -1,0 +1,11 @@
+name: PR Review
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    uses: rHedBull/auto-agents/.github/workflows/pi-pr-review.yml@main
+    secrets:
+      ANTHROPIC_OAUTH: ${{ secrets.ANTHROPIC_OAUTH }}
