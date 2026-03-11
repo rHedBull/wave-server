@@ -7,5 +7,4 @@ on:
 jobs:
   review:
     uses: rHedBull/auto-agents/.github/workflows/pi-pr-review.yml@main
-    secrets:
-      ANTHROPIC_OAUTH: ${{ secrets.ANTHROPIC_OAUTH }}
+    secrets: inherit
