@@ -308,7 +308,7 @@ class ClaudeCodeRunner:
         return "\n".join(lines[-10:]) if lines else "(no output)"
 
 
-def get_runner(runtime: str = "claude") -> AgentRunner:
+def get_runner(runtime: str = "pi") -> AgentRunner:
     """Get the appropriate runner for the given runtime."""
     if runtime == "claude":
         return ClaudeCodeRunner()

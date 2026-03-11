@@ -129,9 +129,10 @@ class TestGetRunner:
         runner = get_runner("claude")
         assert isinstance(runner, ClaudeCodeRunner)
 
-    def test_default_is_claude(self):
+    def test_default_is_pi(self):
         runner = get_runner()
-        assert isinstance(runner, ClaudeCodeRunner)
+        from wave_server.engine.runner import PiRunner
+        assert isinstance(runner, PiRunner)
 
     def test_unknown_runtime_raises(self):
         with pytest.raises(ValueError, match="Unknown runtime"):
