@@ -1,0 +1,10 @@
+{
+  "name": "wave-server-skills",
+  "version": "0.2.0",
+  "description": "Skills for the Wave Server: spec writing, plan creation, and server interaction.",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "skills": ["./skills"]
+  }
+}
