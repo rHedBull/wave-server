@@ -23,6 +23,7 @@ from typing import Any
 
 from wave_server.engine.dag import build_dag
 from wave_server.engine.enforcement import is_verifier_failure
+from wave_server.engine.verify_fix import attempt_fix_and_reverify
 from wave_server.engine.git_worktree import (
     cleanup_single_sub_worktree,
     commit_task_output,
@@ -235,20 +236,47 @@ async def execute_feature(
                     )
 
                     # Wave-verifier tasks may exit 0 but report failure
-                    # in their output JSON — flip exit code to propagate.
+                    # in their output JSON.  Attempt fix-verify loop
+                    # before giving up.
                     if task.agent == "wave-verifier" and result.exit_code == 0:
                         if is_verifier_failure(result.output or ""):
-                            result = TaskResult(
-                                id=result.id,
-                                title=result.title,
-                                agent=result.agent,
-                                exit_code=1,
-                                output=result.output,
-                                stderr="Verification reported failure (status: fail)",
-                                duration_ms=result.duration_ms,
-                                stdout=result.stdout,
-                                timed_out=result.timed_out,
+                            await _call(
+                                on_log,
+                                f"   ⚠️  Verifier {task.id} reported failure — attempting fix",
                             )
+                            from wave_server.engine.wave_executor import _build_task_prompt
+
+                            verifier_prompt = _build_task_prompt(
+                                task, spec_content, data_schemas,
+                                project_structure, environment, project_context,
+                            )
+                            fixed = await attempt_fix_and_reverify(
+                                verifier_task=task,
+                                verifier_output=result.output or "",
+                                verifier_prompt=verifier_prompt,
+                                runner=runner,
+                                cwd=task_cwd,
+                                env=env,
+                                model=model,
+                                agent_models=agent_models,
+                                max_attempts=2,
+                                auto_commit=feature_worktree is not None or auto_commit,
+                                on_log=on_log,
+                            )
+                            if fixed:
+                                result = fixed
+                            else:
+                                result = TaskResult(
+                                    id=result.id,
+                                    title=result.title,
+                                    agent=result.agent,
+                                    exit_code=1,
+                                    output=result.output,
+                                    stderr="Verification failed after fix attempts exhausted",
+                                    duration_ms=result.duration_ms,
+                                    stdout=result.stdout,
+                                    timed_out=result.timed_out,
+                                )
 
                     if result.exit_code != 0:
                         failed_ids.add(task.id)
