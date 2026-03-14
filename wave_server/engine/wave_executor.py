@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from wave_server.engine.dag import execute_dag, map_concurrent
+from wave_server.engine.enforcement import is_verifier_failure
 from wave_server.engine.feature_executor import execute_feature as _execute_feature
 from wave_server.engine.git_worktree import (
     cleanup_all,
@@ -147,6 +148,23 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             stdout=runner_result.stdout,
             timed_out=runner_result.timed_out,
         )
+
+        # Wave-verifier tasks may exit 0 but report "status": "fail" in
+        # their output JSON.  Detect this and flip the exit code so the
+        # engine treats it as a real failure.
+        if task.agent == "wave-verifier" and result.exit_code == 0:
+            if is_verifier_failure(result.output or ""):
+                result = TaskResult(
+                    id=result.id,
+                    title=result.title,
+                    agent=result.agent,
+                    exit_code=1,
+                    output=result.output,
+                    stderr="Verification reported failure (status: fail)",
+                    duration_ms=result.duration_ms,
+                    stdout=result.stdout,
+                    timed_out=result.timed_out,
+                )
 
         # Per-task commit for foundation/integration tasks (only on work branches)
         if result.exit_code == 0 and opts.repo_root:

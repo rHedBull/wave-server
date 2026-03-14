@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from wave_server.engine.dag import build_dag
+from wave_server.engine.enforcement import is_verifier_failure
 from wave_server.engine.git_worktree import (
     cleanup_single_sub_worktree,
     commit_task_output,
@@ -232,6 +233,22 @@ async def execute_feature(
                         stdout=runner_result.stdout,
                         timed_out=runner_result.timed_out,
                     )
+
+                    # Wave-verifier tasks may exit 0 but report failure
+                    # in their output JSON — flip exit code to propagate.
+                    if task.agent == "wave-verifier" and result.exit_code == 0:
+                        if is_verifier_failure(result.output or ""):
+                            result = TaskResult(
+                                id=result.id,
+                                title=result.title,
+                                agent=result.agent,
+                                exit_code=1,
+                                output=result.output,
+                                stderr="Verification reported failure (status: fail)",
+                                duration_ms=result.duration_ms,
+                                stdout=result.stdout,
+                                timed_out=result.timed_out,
+                            )
 
                     if result.exit_code != 0:
                         failed_ids.add(task.id)

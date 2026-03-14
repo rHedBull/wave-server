@@ -14,6 +14,7 @@ import pytest
 from wave_server.engine.git_worktree import (
     _branch_slug,
     _has_uncommitted_changes,
+    branch_exists,
     cleanup_all,
     cleanup_sub_worktrees,
     cleanup_worktrees,
@@ -425,6 +426,53 @@ class TestMergeFeatureBranches:
 
         assert os.path.isfile(os.path.join(repo, "auth.py"))
         assert not os.path.isfile(os.path.join(repo, "billing.py"))
+
+        # Failed feature's branch must be PRESERVED for continuation/rerun
+        assert await branch_exists(repo, wt2.branch), (
+            "Failed feature branch should be preserved, not deleted"
+        )
+        # Successful feature's branch should be cleaned up
+        assert not await branch_exists(repo, wt1.branch)
+
+    @pytest.mark.asyncio
+    async def test_failed_feature_branch_reusable_on_continuation(self, tmp_path):
+        """Verify that a preserved failed-feature branch can be reused.
+
+        Simulates the continuation scenario: feature failed (e.g. verifier
+        hit rate limits), branch preserved, then a new feature worktree is
+        created from the same branch name — the old code should still be there.
+        """
+        repo = _init_repo(str(tmp_path / "repo"))
+
+        # First execution: create feature, commit work, then "fail"
+        wt = await create_feature_worktree(repo, 2, "projects")
+        assert wt
+
+        with open(os.path.join(wt.dir, "projects_router.py"), "w") as f:
+            f.write("# projects CRUD router")
+        _git("add -A", wt.dir)
+        subprocess.run(
+            ["git", "commit", "-m", "impl projects"],
+            cwd=wt.dir, capture_output=True, text=True, check=True,
+        )
+
+        results = [{"name": "projects", "passed": False}]
+        merge_results = await merge_feature_branches(repo, [wt], results)
+        assert merge_results[0].success is False
+
+        # Branch should still exist
+        assert await branch_exists(repo, wt.branch)
+
+        # Continuation: create a new worktree from the same feature branch
+        wt2 = await create_feature_worktree(repo, 2, "projects")
+        assert wt2
+        assert wt2.branch == wt.branch
+
+        # The previously committed file should be present
+        assert os.path.isfile(os.path.join(wt2.dir, "projects_router.py"))
+
+        # Clean up
+        await cleanup_all(repo, [wt2])
 
     @pytest.mark.asyncio
     async def test_no_changes_feature(self, tmp_path):
