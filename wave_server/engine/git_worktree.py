@@ -192,13 +192,16 @@ async def merge_feature_branches(
         r = result_map.get(wt.feature_name, {})
 
         if not r.get("passed", False):
-            await _try_delete_branch(repo_root, wt.branch)
+            # Preserve the branch — it may contain completed tasks' code
+            # that a continuation/rerun can reuse.  Deleting it would
+            # permanently destroy work from tasks that succeeded within
+            # the failed feature.
             merge_results.append(MergeResult(
                 source=wt.branch,
                 target=current_branch,
                 success=False,
                 had_changes=False,
-                error=f"Feature {wt.feature_name} failed, skipping merge",
+                error=f"Feature {wt.feature_name} failed, skipping merge (branch preserved for retry)",
             ))
             continue
 
