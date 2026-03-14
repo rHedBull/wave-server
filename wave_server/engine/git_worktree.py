@@ -615,16 +615,27 @@ async def cleanup_all(
     repo_root: str,
     feature_worktrees: list[FeatureWorktree],
     sub_worktrees: list[SubWorktree] | None = None,
+    merged_branches: set[str] | None = None,
 ) -> None:
-    """Emergency cleanup — remove all worktrees and branches. Best-effort."""
+    """Cleanup — remove worktree directories and only delete merged branches.
+
+    Branches that were NOT merged (failed features) are preserved so that
+    continuation/rerun executions can reuse the work committed on them.
+    Pass *merged_branches* to indicate which branches are safe to delete;
+    if ``None``, no branches are deleted (safe default).
+    """
+    safe_to_delete = merged_branches or set()
+
     if sub_worktrees:
         for sw in sub_worktrees:
             await _remove_worktree(repo_root, sw.dir)
-            await _try_delete_branch(repo_root, sw.branch)
+            if sw.branch in safe_to_delete:
+                await _try_delete_branch(repo_root, sw.branch)
 
     for wt in feature_worktrees:
         await _remove_worktree(repo_root, wt.dir)
-        await _try_delete_branch(repo_root, wt.branch)
+        if wt.branch in safe_to_delete:
+            await _try_delete_branch(repo_root, wt.branch)
 
     await _run_git(["worktree", "prune"], repo_root)
 
@@ -632,7 +643,9 @@ async def cleanup_all(
     wt_base = os.path.join(repo_root, ".wave-worktrees")
     if os.path.isdir(wt_base):
         try:
-            shutil.rmtree(wt_base, ignore_errors=True)
+            remaining = os.listdir(wt_base)
+            if not remaining:
+                shutil.rmtree(wt_base, ignore_errors=True)
         except Exception:
             pass
 
