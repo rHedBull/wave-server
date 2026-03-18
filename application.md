@@ -129,6 +129,19 @@ I don't use AI coding tools — I **extend them**. Most applicants will show app
 
 ---
 
+## Screenshots
+
+### API (45 endpoints)
+![Swagger API](docs/swagger.png)
+
+### Dashboard
+![Dashboard](docs/dashboard.png)
+
+### Demo Script
+Run `./demo.sh` to see a full execution flow — creates a project, uploads a plan, starts an execution, and watches the agent create files on an isolated git branch.
+
+---
+
 ## Links
 
 - GitHub: [github.com/rHedBull](https://github.com/rHedBull)
