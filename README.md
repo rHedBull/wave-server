@@ -2,6 +2,8 @@
 
 REST API and execution engine for multi-agent wave orchestration. Parses plan markdown into DAG-scheduled tasks, spawns Claude Code worker subprocesses, and tracks execution state via SQLite and local filesystem.
 
+> 📄 **[Application — What I've Built with AI Coding Tools](./application.md)**
+
 ## Setup
 
 Requires Python 3.12+.
