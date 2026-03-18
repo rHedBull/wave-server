@@ -142,8 +142,10 @@ class PiRunner:
                 *cmd,
                 cwd=config.cwd,
                 env=spawn_env,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
 
             timed_out = False
@@ -250,8 +252,10 @@ class ClaudeCodeRunner:
                 *cmd,
                 cwd=config.cwd,
                 env=spawn_env,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
 
             timed_out = False
