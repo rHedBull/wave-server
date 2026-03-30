@@ -38,7 +38,7 @@ RUN npm install -g @mariozechner/pi-coding-agent
 RUN pip install --no-cache-dir uv
 
 # Copy backend source and install
-COPY pyproject.toml uv.lock main.py ./
+COPY pyproject.toml uv.lock main.py README.md ./
 COPY wave_server/ ./wave_server/
 RUN uv pip install --system .
 
