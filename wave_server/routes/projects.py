@@ -85,9 +85,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
         )
     )
     # Cascade: delete sequences -> executions -> events/commands
-    seqs = await db.execute(
-        select(Sequence).where(Sequence.project_id == project_id)
-    )
+    seqs = await db.execute(select(Sequence).where(Sequence.project_id == project_id))
     for seq in seqs.scalars().all():
         execs = await db.execute(
             select(Execution).where(Execution.sequence_id == seq.id)
@@ -105,9 +103,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
-@router.post(
-    "/projects/{project_id}/regenerate-key", response_model=ProjectResponse
-)
+@router.post("/projects/{project_id}/regenerate-key", response_model=ProjectResponse)
 async def regenerate_key(project_id: str, db: AsyncSession = Depends(get_db)):
     project = await db.get(Project, project_id)
     if not project:
@@ -147,12 +143,21 @@ async def add_repository(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    # Validate path exists and is a directory
-    repo_path = Path(body.path).expanduser().resolve()
-    if not repo_path.is_dir():
-        raise HTTPException(400, f"Path does not exist or is not a directory: {repo_path}")
+    # Accept remote URLs (https://..., git@...) or local paths
+    from wave_server.engine.repo_cache import is_repo_url
+
+    if is_repo_url(body.path):
+        repo_path_str = body.path
+    else:
+        # Validate local path exists and is a directory
+        repo_path = Path(body.path).expanduser().resolve()
+        if not repo_path.is_dir():
+            raise HTTPException(
+                400, f"Path does not exist or is not a directory: {repo_path}"
+            )
+        repo_path_str = str(repo_path)
     repo = ProjectRepository(
-        project_id=project_id, path=str(repo_path), label=body.label
+        project_id=project_id, path=repo_path_str, label=body.label
     )
     db.add(repo)
     await db.commit()
@@ -160,9 +165,7 @@ async def add_repository(
     return repo
 
 
-@router.delete(
-    "/projects/{project_id}/repositories/{repo_id}", status_code=204
-)
+@router.delete("/projects/{project_id}/repositories/{repo_id}", status_code=204)
 async def delete_repository(
     project_id: str, repo_id: str, db: AsyncSession = Depends(get_db)
 ):
@@ -211,9 +214,7 @@ async def add_context_file(
     return cf
 
 
-@router.delete(
-    "/projects/{project_id}/context-files/{file_id}", status_code=204
-)
+@router.delete("/projects/{project_id}/context-files/{file_id}", status_code=204)
 async def delete_context_file(
     project_id: str, file_id: str, db: AsyncSession = Depends(get_db)
 ):
@@ -270,9 +271,7 @@ async def list_env_vars(project_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/projects/{project_id}/env/{key}", status_code=204)
-async def delete_env_var(
-    project_id: str, key: str, db: AsyncSession = Depends(get_db)
-):
+async def delete_env_var(project_id: str, key: str, db: AsyncSession = Depends(get_db)):
     """Remove a single environment variable."""
     project = await db.get(Project, project_id)
     if not project:

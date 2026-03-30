@@ -190,7 +190,9 @@ async def execute_feature(
                     if use_sub_wt:
                         async with git_lock:
                             sw = await create_single_sub_worktree(
-                                feature_worktree, wave_num, task.id  # type: ignore[arg-type]
+                                feature_worktree,
+                                wave_num,
+                                task.id,  # type: ignore[arg-type]
                             )
                         if sw:
                             task_cwd = sw.dir
@@ -205,7 +207,12 @@ async def execute_feature(
                     from wave_server.engine.wave_executor import _build_task_prompt
 
                     prompt = _build_task_prompt(
-                        task, spec_content, data_schemas, project_structure, environment, project_context
+                        task,
+                        spec_content,
+                        data_schemas,
+                        project_structure,
+                        environment,
+                        project_context,
                     )
 
                     if feature_worktree is not None:
@@ -216,7 +223,11 @@ async def execute_feature(
 
                     task_model = (agent_models or {}).get(task.agent) or model or None
                     config = RunnerConfig(
-                        task_id=task.id, prompt=prompt, cwd=task_cwd, env=env, model=task_model
+                        task_id=task.id,
+                        prompt=prompt,
+                        cwd=task_cwd,
+                        env=env,
+                        model=task_model,
                     )
 
                     runner_result = await runner.spawn(config)
@@ -228,7 +239,9 @@ async def execute_feature(
                         title=task.title,
                         agent=task.agent,
                         exit_code=runner_result.exit_code,
-                        output=output if not runner_result.timed_out else f"Task timed out\n{output}",
+                        output=output
+                        if not runner_result.timed_out
+                        else f"Task timed out\n{output}",
                         stderr=runner_result.stderr,
                         duration_ms=elapsed_ms,
                         stdout=runner_result.stdout,
@@ -244,11 +257,17 @@ async def execute_feature(
                                 on_log,
                                 f"   ⚠️  Verifier {task.id} reported failure — attempting fix",
                             )
-                            from wave_server.engine.wave_executor import _build_task_prompt
+                            from wave_server.engine.wave_executor import (
+                                _build_task_prompt,
+                            )
 
                             verifier_prompt = _build_task_prompt(
-                                task, spec_content, data_schemas,
-                                project_structure, environment, project_context,
+                                task,
+                                spec_content,
+                                data_schemas,
+                                project_structure,
+                                environment,
+                                project_context,
                             )
                             fixed = await attempt_fix_and_reverify(
                                 verifier_task=task,
@@ -292,6 +311,7 @@ async def execute_feature(
                                     task.title,
                                     task.agent,
                                     runner,
+                                    on_log=on_log,
                                 )
                                 if merge_result.had_changes and merge_result.success:
                                     await _call(
@@ -300,7 +320,8 @@ async def execute_feature(
                                     )
                             else:
                                 await cleanup_single_sub_worktree(
-                                    feature_worktree.repo_root, sw  # type: ignore[union-attr]
+                                    feature_worktree.repo_root,
+                                    sw,  # type: ignore[union-attr]
                                 )
                     else:
                         # No sub-worktree — commit directly in feature dir
@@ -324,7 +345,8 @@ async def execute_feature(
                     try:
                         async with git_lock:
                             await cleanup_single_sub_worktree(
-                                feature_worktree.repo_root, sw  # type: ignore[union-attr]
+                                feature_worktree.repo_root,
+                                sw,  # type: ignore[union-attr]
                             )
                     except Exception:
                         pass

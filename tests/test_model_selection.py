@@ -104,7 +104,9 @@ class TestRunnerConfig:
         assert cfg.model is None
 
     def test_model_set(self):
-        cfg = RunnerConfig(task_id="t1", prompt="hi", cwd="/tmp", model="claude-sonnet-4-5")
+        cfg = RunnerConfig(
+            task_id="t1", prompt="hi", cwd="/tmp", model="claude-sonnet-4-5"
+        )
         assert cfg.model == "claude-sonnet-4-5"
 
 
@@ -115,11 +117,15 @@ class TestClaudeCodeRunnerCmd:
     """Verify the CLI args include --model when set (without actually spawning)."""
 
     def test_cmd_without_model(self):
-        runner = ClaudeCodeRunner()
+        ClaudeCodeRunner()  # ensure constructor works
         # Reconstruct cmd as runner.spawn() would
         config = RunnerConfig(task_id="t", prompt="do it", cwd="/tmp", model=None)
         cmd = [
-            "claude", "--print", "--verbose", "--output-format", "stream-json",
+            "claude",
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
             "--dangerously-skip-permissions",
         ]
         if config.model:
@@ -129,9 +135,15 @@ class TestClaudeCodeRunnerCmd:
         assert cmd[-1] == "do it"
 
     def test_cmd_with_model(self):
-        config = RunnerConfig(task_id="t", prompt="do it", cwd="/tmp", model="claude-sonnet-4-5")
+        config = RunnerConfig(
+            task_id="t", prompt="do it", cwd="/tmp", model="claude-sonnet-4-5"
+        )
         cmd = [
-            "claude", "--print", "--verbose", "--output-format", "stream-json",
+            "claude",
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
             "--dangerously-skip-permissions",
         ]
         if config.model:
@@ -177,8 +189,8 @@ class TestFeatureExecutorModelThreading:
             model="claude-sonnet-4-5",
             agent_models={"test-writer": "claude-haiku-4-5"},
         )
-        assert runner.model_for("t1") == "claude-sonnet-4-5"   # global fallback
-        assert runner.model_for("t2") == "claude-haiku-4-5"    # per-agent override
+        assert runner.model_for("t1") == "claude-sonnet-4-5"  # global fallback
+        assert runner.model_for("t2") == "claude-haiku-4-5"  # per-agent override
 
     @pytest.mark.asyncio
     async def test_agent_model_without_global(self):
@@ -192,8 +204,8 @@ class TestFeatureExecutorModelThreading:
             runner,
             agent_models={"wave-verifier": "claude-haiku-4-5"},
         )
-        assert runner.model_for("t1") is None                   # no model set
-        assert runner.model_for("t2") == "claude-haiku-4-5"    # per-agent override
+        assert runner.model_for("t1") is None  # no model set
+        assert runner.model_for("t2") == "claude-haiku-4-5"  # per-agent override
 
     @pytest.mark.asyncio
     async def test_all_three_agent_types_get_correct_models(self):
@@ -270,9 +282,9 @@ class TestWaveExecutorModelThreading:
             },
         )
         await execute_wave(opts)
-        assert runner.model_for("f1") == "claude-sonnet-4-5"    # worker → global
+        assert runner.model_for("f1") == "claude-sonnet-4-5"  # worker → global
         assert runner.model_for("feat1") == "claude-haiku-4-5"  # test-writer → override
-        assert runner.model_for("i1") == "claude-haiku-4-5"     # wave-verifier → override
+        assert runner.model_for("i1") == "claude-haiku-4-5"  # wave-verifier → override
 
     @pytest.mark.asyncio
     async def test_partial_agent_models_falls_back_correctly(self):
@@ -283,9 +295,9 @@ class TestWaveExecutorModelThreading:
             agent_models={"test-writer": "claude-haiku-4-5"},
         )
         await execute_wave(opts)
-        assert runner.model_for("f1") == "claude-sonnet-4-5"    # worker → global
+        assert runner.model_for("f1") == "claude-sonnet-4-5"  # worker → global
         assert runner.model_for("feat1") == "claude-haiku-4-5"  # test-writer → override
-        assert runner.model_for("i1") == "claude-sonnet-4-5"    # wave-verifier → global
+        assert runner.model_for("i1") == "claude-sonnet-4-5"  # wave-verifier → global
 
 
 # ── Server config per-agent defaults ──────────────────────────

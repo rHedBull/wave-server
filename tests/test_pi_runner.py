@@ -8,32 +8,38 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wave_server.engine.runner import AgentRunner, PiRunner, _detect_pi_output_failure, get_runner
+from wave_server.engine.runner import (
+    AgentRunner,
+    PiRunner,
+    _detect_pi_output_failure,
+    get_runner,
+)
 from wave_server.engine.log_parser import (
     AssistantTurn,
-    ParsedLog,
     ToolResult,
     format_task_log,
     parse_pi_json,
 )
-from wave_server.engine.types import RunnerConfig, RunnerResult
+from wave_server.engine.types import RunnerConfig
 
 
 # ── Sample pi JSONL output (captured from real pi run) ─────────
 
-SAMPLE_PI_OUTPUT = '\n'.join([
-    '{"type":"session","version":3,"id":"test-session","timestamp":"2026-03-07T17:08:16.131Z","cwd":"/tmp/test"}',
-    '{"type":"agent_start"}',
-    '{"type":"turn_start"}',
-    '{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"Create hello.txt"}]}}',
-    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"tool_1","name":"write","arguments":{"path":"hello.txt","content":"hello world"}}],"model":"claude-sonnet-4-5","usage":{"input":1353,"output":79,"cacheRead":0,"cacheWrite":0,"totalTokens":1432,"cost":{"input":0.004059,"output":0.000395,"cacheRead":0,"cacheWrite":0,"total":0.004454}}}}',
-    '{"type":"message_end","message":{"role":"toolResult","content":[{"type":"text","text":"Successfully wrote 11 bytes to hello.txt"}]}}',
-    '{"type":"turn_end"}',
-    '{"type":"turn_start"}',
-    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Created hello.txt with content \'hello world\'."}],"model":"claude-sonnet-4-5","usage":{"input":1461,"output":21,"cacheRead":0,"cacheWrite":0,"totalTokens":1482,"cost":{"input":0.004383,"output":0.000105,"cacheRead":0,"cacheWrite":0,"total":0.004488}}}}',
-    '{"type":"turn_end"}',
-    '{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"Create hello.txt"}]},{"role":"assistant","content":[{"type":"toolCall","id":"tool_1","name":"write","arguments":{"path":"hello.txt","content":"hello world"}}],"usage":{"input":1353,"output":79,"cost":{"total":0.004454}}},{"role":"toolResult","content":[{"type":"text","text":"Successfully wrote 11 bytes to hello.txt"}]},{"role":"assistant","content":[{"type":"text","text":"Created hello.txt with content \'hello world\'."}],"usage":{"input":1461,"output":21,"cost":{"total":0.004488}}}]}',
-])
+SAMPLE_PI_OUTPUT = "\n".join(
+    [
+        '{"type":"session","version":3,"id":"test-session","timestamp":"2026-03-07T17:08:16.131Z","cwd":"/tmp/test"}',
+        '{"type":"agent_start"}',
+        '{"type":"turn_start"}',
+        '{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"Create hello.txt"}]}}',
+        '{"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"tool_1","name":"write","arguments":{"path":"hello.txt","content":"hello world"}}],"model":"claude-sonnet-4-5","usage":{"input":1353,"output":79,"cacheRead":0,"cacheWrite":0,"totalTokens":1432,"cost":{"input":0.004059,"output":0.000395,"cacheRead":0,"cacheWrite":0,"total":0.004454}}}}',
+        '{"type":"message_end","message":{"role":"toolResult","content":[{"type":"text","text":"Successfully wrote 11 bytes to hello.txt"}]}}',
+        '{"type":"turn_end"}',
+        '{"type":"turn_start"}',
+        '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Created hello.txt with content \'hello world\'."}],"model":"claude-sonnet-4-5","usage":{"input":1461,"output":21,"cacheRead":0,"cacheWrite":0,"totalTokens":1482,"cost":{"input":0.004383,"output":0.000105,"cacheRead":0,"cacheWrite":0,"total":0.004488}}}}',
+        '{"type":"turn_end"}',
+        '{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"Create hello.txt"}]},{"role":"assistant","content":[{"type":"toolCall","id":"tool_1","name":"write","arguments":{"path":"hello.txt","content":"hello world"}}],"usage":{"input":1353,"output":79,"cost":{"total":0.004454}}},{"role":"toolResult","content":[{"type":"text","text":"Successfully wrote 11 bytes to hello.txt"}]},{"role":"assistant","content":[{"type":"text","text":"Created hello.txt with content \'hello world\'."}],"usage":{"input":1461,"output":21,"cost":{"total":0.004488}}}]}',
+    ]
+)
 
 
 # ── PiRunner.extract_final_output ──────────────────────────────
@@ -49,48 +55,68 @@ class TestPiExtractFinalOutput:
 
     def test_agent_end_extracts_from_messages(self):
         """agent_end event with messages array should yield final assistant text."""
-        stdout = json.dumps({
-            "type": "agent_end",
-            "messages": [
-                {"role": "user", "content": [{"type": "text", "text": "Do something"}]},
-                {"role": "assistant", "content": [{"type": "text", "text": "Done!"}]},
-            ],
-        })
+        stdout = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "Do something"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Done!"}],
+                    },
+                ],
+            }
+        )
         result = self.runner.extract_final_output(stdout)
         assert result == "Done!"
 
     def test_message_end_assistant_text(self):
-        stdout = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "Here is the answer."}],
-            },
-        })
+        stdout = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Here is the answer."}],
+                },
+            }
+        )
         result = self.runner.extract_final_output(stdout)
         assert result == "Here is the answer."
 
     def test_skips_tool_call_only_messages(self):
         """Messages with only toolCall content (no text) should not yield output."""
-        stdout = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "toolCall", "name": "bash", "arguments": {"command": "ls"}}],
-            },
-        })
+        stdout = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "toolCall",
+                            "name": "bash",
+                            "arguments": {"command": "ls"},
+                        }
+                    ],
+                },
+            }
+        )
         result = self.runner.extract_final_output(stdout)
         # No text content, should fall back
         assert "(no output)" not in result or result == "(no output)"
 
     def test_skips_user_messages(self):
-        stdout = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "user",
-                "content": [{"type": "text", "text": "User prompt"}],
-            },
-        })
+        stdout = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "User prompt"}],
+                },
+            }
+        )
         result = self.runner.extract_final_output(stdout)
         # User messages are not extracted
         assert result != "User prompt"
@@ -104,10 +130,15 @@ class TestPiExtractFinalOutput:
     def test_malformed_json_skipped(self):
         lines = [
             "not json",
-            json.dumps({
-                "type": "message_end",
-                "message": {"role": "assistant", "content": [{"type": "text", "text": "Valid"}]},
-            }),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Valid"}],
+                    },
+                }
+            ),
         ]
         stdout = "\n".join(lines)
         assert self.runner.extract_final_output(stdout) == "Valid"
@@ -123,14 +154,24 @@ class TestPiExtractFinalOutput:
     def test_last_assistant_text_wins(self):
         """When multiple assistant messages, the last text is returned."""
         lines = [
-            json.dumps({
-                "type": "message_end",
-                "message": {"role": "assistant", "content": [{"type": "text", "text": "First"}]},
-            }),
-            json.dumps({
-                "type": "message_end",
-                "message": {"role": "assistant", "content": [{"type": "text", "text": "Second"}]},
-            }),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "First"}],
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Second"}],
+                    },
+                }
+            ),
         ]
         stdout = "\n".join(lines)
         result = self.runner.extract_final_output(stdout)
@@ -153,7 +194,10 @@ class TestParsePiJson:
     def test_tool_call_extracted(self):
         parsed = parse_pi_json(SAMPLE_PI_OUTPUT)
         from wave_server.engine.log_parser import AssistantTurn
-        tool_turns = [t for t in parsed.turns if isinstance(t, AssistantTurn) and t.tool_calls]
+
+        tool_turns = [
+            t for t in parsed.turns if isinstance(t, AssistantTurn) and t.tool_calls
+        ]
         assert len(tool_turns) >= 1
         tc = tool_turns[0].tool_calls[0]
         assert tc.name == "write"
@@ -162,6 +206,7 @@ class TestParsePiJson:
     def test_tool_result_extracted(self):
         parsed = parse_pi_json(SAMPLE_PI_OUTPUT)
         from wave_server.engine.log_parser import ToolResult
+
         tool_results = [t for t in parsed.turns if isinstance(t, ToolResult)]
         assert len(tool_results) >= 1
         assert "Successfully wrote" in tool_results[0].content
@@ -202,21 +247,23 @@ class TestParsePiJson:
 
     def test_cache_tokens(self):
         """Cache read/write tokens are extracted from usage."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "cached"}],
-                "model": "test-model",
-                "usage": {
-                    "input": 100,
-                    "output": 50,
-                    "cacheRead": 500,
-                    "cacheWrite": 200,
-                    "cost": {"total": 0.001},
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "cached"}],
+                    "model": "test-model",
+                    "usage": {
+                        "input": 100,
+                        "output": 50,
+                        "cacheRead": 500,
+                        "cacheWrite": 200,
+                        "cost": {"total": 0.001},
+                    },
                 },
-            },
-        })
+            }
+        )
         parsed = parse_pi_json(line)
         assert parsed.cache_read_tokens == 500
         assert parsed.cache_creation_tokens == 200
@@ -268,7 +315,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -291,7 +341,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -331,7 +384,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -346,7 +402,9 @@ class TestPiRunnerSpawn:
     async def test_env_merging(self):
         """config.env vars are merged into the subprocess environment."""
         config = RunnerConfig(
-            task_id="t1", prompt="x", cwd="/tmp",
+            task_id="t1",
+            prompt="x",
+            cwd="/tmp",
             env={"MY_VAR": "hello", "OTHER": "world"},
         )
         captured_kwargs = {}
@@ -361,7 +419,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -388,7 +449,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -412,8 +476,14 @@ class TestPiRunnerSpawn:
             return proc
 
         with (
-            patch("wave_server.engine.runner.shutil.which", return_value="/home/user/.nvm/versions/node/v20/bin/pi"),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.shutil.which",
+                return_value="/home/user/.nvm/versions/node/v20/bin/pi",
+            ),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -437,7 +507,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -448,7 +521,10 @@ class TestPiRunnerSpawn:
     async def test_timeout_kills_process(self):
         """When timeout expires, process should be killed and timed_out=True."""
         config = RunnerConfig(
-            task_id="t1", prompt="x", cwd="/tmp", timeout_ms=100,
+            task_id="t1",
+            prompt="x",
+            cwd="/tmp",
+            timeout_ms=100,
         )
 
         async def fake_exec(*args, **kwargs):
@@ -470,7 +546,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -509,7 +588,7 @@ class TestPiRunnerSpawn:
 
         assert result.exit_code == 1
         assert result.timed_out is False
-        assert "pi CLI not found" in result.stderr
+        assert "FileNotFoundError" in result.stderr
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_code(self):
@@ -525,7 +604,10 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -556,8 +638,14 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
-            patch("wave_server.engine.runner.asyncio.wait_for", side_effect=tracking_wait_for),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
+            patch(
+                "wave_server.engine.runner.asyncio.wait_for",
+                side_effect=tracking_wait_for,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -585,8 +673,14 @@ class TestPiRunnerSpawn:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
-            patch("wave_server.engine.runner.asyncio.wait_for", side_effect=tracking_wait_for),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
+            patch(
+                "wave_server.engine.runner.asyncio.wait_for",
+                side_effect=tracking_wait_for,
+            ),
         ):
             runner = PiRunner()
             await runner.spawn(config)
@@ -602,20 +696,31 @@ class TestParsePiJsonEdgeCases:
 
     def test_mixed_text_and_tool_call_in_one_message(self):
         """Assistant message with both text and toolCall content blocks."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "I'll create that file now."},
-                    {"type": "toolCall", "id": "tc1", "name": "write",
-                     "arguments": {"path": "out.txt", "content": "data"}},
-                ],
-                "model": "test",
-                "usage": {"input": 100, "output": 50, "cacheRead": 0, "cacheWrite": 0,
-                          "cost": {"total": 0.001}},
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "I'll create that file now."},
+                        {
+                            "type": "toolCall",
+                            "id": "tc1",
+                            "name": "write",
+                            "arguments": {"path": "out.txt", "content": "data"},
+                        },
+                    ],
+                    "model": "test",
+                    "usage": {
+                        "input": 100,
+                        "output": 50,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "cost": {"total": 0.001},
+                    },
+                },
+            }
+        )
         parsed = parse_pi_json(line)
         assert len(parsed.turns) == 1
         turn = parsed.turns[0]
@@ -626,23 +731,46 @@ class TestParsePiJsonEdgeCases:
 
     def test_multiple_tool_calls_in_one_message(self):
         """Assistant message with multiple toolCall blocks."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [
-                    {"type": "toolCall", "id": "tc1", "name": "read",
-                     "arguments": {"path": "a.py"}},
-                    {"type": "toolCall", "id": "tc2", "name": "bash",
-                     "arguments": {"command": "ls"}},
-                    {"type": "toolCall", "id": "tc3", "name": "edit",
-                     "arguments": {"path": "b.py", "oldText": "x", "newText": "y"}},
-                ],
-                "model": "test",
-                "usage": {"input": 200, "output": 80, "cacheRead": 0, "cacheWrite": 0,
-                          "cost": {"total": 0.002}},
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "toolCall",
+                            "id": "tc1",
+                            "name": "read",
+                            "arguments": {"path": "a.py"},
+                        },
+                        {
+                            "type": "toolCall",
+                            "id": "tc2",
+                            "name": "bash",
+                            "arguments": {"command": "ls"},
+                        },
+                        {
+                            "type": "toolCall",
+                            "id": "tc3",
+                            "name": "edit",
+                            "arguments": {
+                                "path": "b.py",
+                                "oldText": "x",
+                                "newText": "y",
+                            },
+                        },
+                    ],
+                    "model": "test",
+                    "usage": {
+                        "input": 200,
+                        "output": 80,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "cost": {"total": 0.002},
+                    },
+                },
+            }
+        )
         parsed = parse_pi_json(line)
         assert len(parsed.turns) == 1
         turn = parsed.turns[0]
@@ -654,26 +782,30 @@ class TestParsePiJsonEdgeCases:
 
     def test_agent_end_with_no_assistant_messages(self):
         """agent_end where no assistant messages exist — final_result stays empty."""
-        line = json.dumps({
-            "type": "agent_end",
-            "messages": [
-                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            ],
-        })
+        line = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+                ],
+            }
+        )
         parsed = parse_pi_json(line)
         assert parsed.final_result == ""
         assert parsed.num_turns == 0
 
     def test_message_end_missing_usage(self):
         """Assistant message with no usage field — should not crash."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "No usage here"}],
-                "model": "test",
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "No usage here"}],
+                    "model": "test",
+                },
+            }
+        )
         parsed = parse_pi_json(line)
         assert len(parsed.turns) == 1
         assert parsed.total_cost_usd == 0.0
@@ -682,15 +814,17 @@ class TestParsePiJsonEdgeCases:
 
     def test_message_end_missing_cost_in_usage(self):
         """Usage present but cost field missing — cost stays 0."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "partial usage"}],
-                "model": "test",
-                "usage": {"input": 100, "output": 50},
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "partial usage"}],
+                    "model": "test",
+                    "usage": {"input": 100, "output": 50},
+                },
+            }
+        )
         parsed = parse_pi_json(line)
         assert parsed.input_tokens == 100
         assert parsed.output_tokens == 50
@@ -698,17 +832,19 @@ class TestParsePiJsonEdgeCases:
 
     def test_tool_result_with_multiple_content_blocks(self):
         """toolResult with multiple text content blocks."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "toolResult",
-                "content": [
-                    {"type": "text", "text": "line 1"},
-                    {"type": "text", "text": "line 2"},
-                    {"type": "text", "text": "line 3"},
-                ],
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "toolResult",
+                    "content": [
+                        {"type": "text", "text": "line 1"},
+                        {"type": "text", "text": "line 2"},
+                        {"type": "text", "text": "line 3"},
+                    ],
+                },
+            }
+        )
         parsed = parse_pi_json(line)
         results = [t for t in parsed.turns if isinstance(t, ToolResult)]
         assert len(results) == 1
@@ -732,38 +868,44 @@ class TestParsePiJsonEdgeCases:
     def test_model_from_first_assistant_only(self):
         """Model is taken from the first assistant message that has it."""
         lines = [
-            json.dumps({
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "a"}],
-                    "model": "first-model",
-                    "usage": {"input": 10, "output": 5, "cost": {"total": 0.0}},
-                },
-            }),
-            json.dumps({
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "b"}],
-                    "model": "second-model",
-                    "usage": {"input": 10, "output": 5, "cost": {"total": 0.0}},
-                },
-            }),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "a"}],
+                        "model": "first-model",
+                        "usage": {"input": 10, "output": 5, "cost": {"total": 0.0}},
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "b"}],
+                        "model": "second-model",
+                        "usage": {"input": 10, "output": 5, "cost": {"total": 0.0}},
+                    },
+                }
+            ),
         ]
         parsed = parse_pi_json("\n".join(lines))
         assert parsed.model == "first-model"
 
     def test_assistant_with_empty_text_block(self):
         """Empty text blocks should not create a turn."""
-        line = json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": ""}],
-                "model": "test",
-            },
-        })
+        line = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": ""}],
+                    "model": "test",
+                },
+            }
+        )
         parsed = parse_pi_json(line)
         assert parsed.turns == []
 
@@ -771,19 +913,25 @@ class TestParsePiJsonEdgeCases:
         """Cost from all assistant messages sums correctly."""
         lines = []
         for i in range(5):
-            lines.append(json.dumps({
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": f"turn {i}"}],
-                    "model": "test",
-                    "usage": {
-                        "input": 100, "output": 20,
-                        "cacheRead": 10, "cacheWrite": 5,
-                        "cost": {"total": 0.001},
-                    },
-                },
-            }))
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "message_end",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": f"turn {i}"}],
+                            "model": "test",
+                            "usage": {
+                                "input": 100,
+                                "output": 20,
+                                "cacheRead": 10,
+                                "cacheWrite": 5,
+                                "cost": {"total": 0.001},
+                            },
+                        },
+                    }
+                )
+            )
         parsed = parse_pi_json("\n".join(lines))
         assert parsed.input_tokens == 500
         assert parsed.output_tokens == 100
@@ -882,91 +1030,109 @@ class TestDetectPiOutputFailure:
         """auto_retry_end with success=false should be detected."""
         lines = [
             json.dumps({"type": "agent_start"}),
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": False,
-                "attempt": 3,
-                "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            }),
+            json.dumps(
+                {
+                    "type": "auto_retry_end",
+                    "success": False,
+                    "attempt": 3,
+                    "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "retries exhausted" in result
-        assert "rate_limit_error" in result
+        assert "retries exhausted" in result.error
+        assert "rate_limit_error" in result.error
 
     def test_detects_rate_limit_in_agent_end(self):
         """agent_end with error stopReason and rate limit errorMessage, no output."""
         lines = [
             json.dumps({"type": "agent_start"}),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant",
-                    "content": [],
-                    "stopReason": "error",
-                    "errorMessage": "429 rate_limit_error",
-                }],
-            }),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": "429 rate_limit_error",
+                        }
+                    ],
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "error" in result.lower()
+        assert "error" in result.error.lower()
 
     def test_detects_error_stop_reason_in_message_end(self):
         """message_end with stopReason=error and no useful content."""
         lines = [
-            json.dumps({
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [],
-                    "stopReason": "error",
-                    "errorMessage": "529 overloaded",
-                },
-            }),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant",
-                    "content": [],
-                    "stopReason": "error",
-                    "errorMessage": "529 overloaded",
-                }],
-            }),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": "529 overloaded",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": "529 overloaded",
+                        }
+                    ],
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "overloaded" in result
+        assert "overloaded" in result.error
 
     def test_no_failure_when_error_but_had_output(self):
         """If agent produced real output before error, don't flag as failure.
         The task may have completed its work before hitting a rate limit on the
         final summary turn."""
         lines = [
-            json.dumps({
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "I created the files."}],
-                    "stopReason": "stop",
-                },
-            }),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [
-                    {
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
                         "role": "assistant",
                         "content": [{"type": "text", "text": "I created the files."}],
                         "stopReason": "stop",
                     },
-                    {
-                        "role": "assistant",
-                        "content": [],
-                        "stopReason": "error",
-                        "errorMessage": "429 rate limit",
-                    },
-                ],
-            }),
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "I created the files."}
+                            ],
+                            "stopReason": "stop",
+                        },
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": "429 rate limit",
+                        },
+                    ],
+                }
+            ),
         ]
         # Had successful output, so not a total failure
         result = _detect_pi_output_failure("\n".join(lines))
@@ -975,24 +1141,30 @@ class TestDetectPiOutputFailure:
     def test_no_failure_when_tool_calls_made(self):
         """If agent made tool calls (did work), error on final turn is not a total failure."""
         lines = [
-            json.dumps({
-                "type": "agent_end",
-                "messages": [
-                    {
-                        "role": "assistant",
-                        "content": [
-                            {"type": "toolCall", "name": "write", "arguments": {"path": "foo.py"}},
-                        ],
-                        "stopReason": "toolUse",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": [],
-                        "stopReason": "error",
-                        "errorMessage": "429 rate limit",
-                    },
-                ],
-            }),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "toolCall",
+                                    "name": "write",
+                                    "arguments": {"path": "foo.py"},
+                                },
+                            ],
+                            "stopReason": "toolUse",
+                        },
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": "429 rate limit",
+                        },
+                    ],
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is None
@@ -1000,41 +1172,51 @@ class TestDetectPiOutputFailure:
     def test_auto_retry_failure_takes_precedence(self):
         """auto_retry_end failure is detected even if there was some earlier output."""
         lines = [
-            json.dumps({
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "Partial work"}],
-                    "stopReason": "stop",
-                },
-            }),
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": False,
-                "attempt": 3,
-                "finalError": "429 rate limit",
-            }),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Partial work"}],
+                        "stopReason": "stop",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "auto_retry_end",
+                    "success": False,
+                    "attempt": 3,
+                    "finalError": "429 rate limit",
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "retries exhausted" in result
+        assert "retries exhausted" in result.error
 
     def test_auto_retry_success_not_flagged(self):
         """auto_retry_end with success=true should not be flagged."""
         lines = [
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": True,
-                "attempt": 2,
-            }),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "Done after retry"}],
-                    "stopReason": "stop",
-                }],
-            }),
+            json.dumps(
+                {
+                    "type": "auto_retry_end",
+                    "success": True,
+                    "attempt": 2,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "Done after retry"}],
+                            "stopReason": "stop",
+                        }
+                    ],
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is None
@@ -1042,16 +1224,18 @@ class TestDetectPiOutputFailure:
     def test_detects_overloaded_error(self):
         """529 overloaded errors should be detected the same as rate limits."""
         lines = [
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": False,
-                "attempt": 3,
-                "finalError": '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
-            }),
+            json.dumps(
+                {
+                    "type": "auto_retry_end",
+                    "success": False,
+                    "attempt": 3,
+                    "finalError": '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "overloaded" in result.lower()
+        assert "overloaded" in result.error.lower()
 
     def test_real_rate_limited_output(self):
         """Test with actual captured output from a rate-limited pi task."""
@@ -1060,58 +1244,80 @@ class TestDetectPiOutputFailure:
             json.dumps({"type": "session", "version": 3, "id": "test"}),
             json.dumps({"type": "agent_start"}),
             json.dumps({"type": "turn_start"}),
-            json.dumps({
-                "type": "turn_end",
-                "message": {
-                    "role": "assistant", "content": [],
-                    "stopReason": "error",
-                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
-                },
-                "toolResults": [],
-            }),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant", "content": [],
-                    "stopReason": "error",
-                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
-                }],
-            }),
-            json.dumps({
-                "type": "auto_retry_start",
-                "attempt": 3, "maxAttempts": 3, "delayMs": 8000,
-                "errorMessage": "429 rate_limit_error",
-            }),
+            json.dumps(
+                {
+                    "type": "turn_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                    },
+                    "toolResults": [],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                        }
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "auto_retry_start",
+                    "attempt": 3,
+                    "maxAttempts": 3,
+                    "delayMs": 8000,
+                    "errorMessage": "429 rate_limit_error",
+                }
+            ),
             json.dumps({"type": "agent_start"}),
             json.dumps({"type": "turn_start"}),
-            json.dumps({
-                "type": "turn_end",
-                "message": {
-                    "role": "assistant", "content": [],
-                    "stopReason": "error",
-                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
-                },
-                "toolResults": [],
-            }),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant", "content": [],
-                    "stopReason": "error",
-                    "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
-                }],
-            }),
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": False,
-                "attempt": 3,
-                "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
-            }),
+            json.dumps(
+                {
+                    "type": "turn_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                    },
+                    "toolResults": [],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                        }
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "auto_retry_end",
+                    "success": False,
+                    "attempt": 3,
+                    "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account\'s rate limit."}}',
+                }
+            ),
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "retries exhausted" in result
-        assert "rate_limit" in result
+        assert "retries exhausted" in result.error
+        assert "rate_limit" in result.error
 
 
 # ── PiRunner.spawn() — failure detection integration ──────────
@@ -1124,23 +1330,32 @@ class TestPiRunnerSpawnFailureDetection:
     @pytest.mark.asyncio
     async def test_rate_limit_overrides_exit_code(self):
         """Pi exits 0 with rate limit output → exit_code should be 1."""
-        rate_limited_output = "\n".join([
-            json.dumps({"type": "agent_start"}),
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant", "content": [],
-                    "stopReason": "error",
-                    "errorMessage": "429 rate_limit_error",
-                }],
-            }),
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": False,
-                "attempt": 3,
-                "finalError": "429 rate_limit_error",
-            }),
-        ])
+        rate_limited_output = "\n".join(
+            [
+                json.dumps({"type": "agent_start"}),
+                json.dumps(
+                    {
+                        "type": "agent_end",
+                        "messages": [
+                            {
+                                "role": "assistant",
+                                "content": [],
+                                "stopReason": "error",
+                                "errorMessage": "429 rate_limit_error",
+                            }
+                        ],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "auto_retry_end",
+                        "success": False,
+                        "attempt": 3,
+                        "finalError": "429 rate_limit_error",
+                    }
+                ),
+            ]
+        )
         config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
 
         async def fake_exec(*args, **kwargs):
@@ -1154,7 +1369,10 @@ class TestPiRunnerSpawnFailureDetection:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -1170,16 +1388,17 @@ class TestPiRunnerSpawnFailureDetection:
 
         async def fake_exec(*args, **kwargs):
             proc = AsyncMock()
-            proc.communicate = AsyncMock(
-                return_value=(SAMPLE_PI_OUTPUT.encode(), b"")
-            )
+            proc.communicate = AsyncMock(return_value=(SAMPLE_PI_OUTPUT.encode(), b""))
             proc.returncode = 0
             proc.kill = MagicMock()
             return proc
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -1200,7 +1419,10 @@ class TestPiRunnerSpawnFailureDetection:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -1210,11 +1432,13 @@ class TestPiRunnerSpawnFailureDetection:
     @pytest.mark.asyncio
     async def test_timeout_skips_failure_detection(self):
         """When timed out, don't run output failure detection."""
-        rate_limited_output = json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "finalError": "429 rate limit",
-        })
+        rate_limited_output = json.dumps(
+            {
+                "type": "auto_retry_end",
+                "success": False,
+                "finalError": "429 rate limit",
+            }
+        )
         config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp", timeout_ms=100)
 
         async def fake_exec(*args, **kwargs):
@@ -1235,7 +1459,10 @@ class TestPiRunnerSpawnFailureDetection:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)
@@ -1247,11 +1474,13 @@ class TestPiRunnerSpawnFailureDetection:
     @pytest.mark.asyncio
     async def test_existing_stderr_preserved_with_detection(self):
         """When failure is detected, existing stderr is preserved alongside new message."""
-        rate_limited_output = json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "finalError": "429 rate limit",
-        })
+        rate_limited_output = json.dumps(
+            {
+                "type": "auto_retry_end",
+                "success": False,
+                "finalError": "429 rate limit",
+            }
+        )
         config = RunnerConfig(task_id="t1", prompt="x", cwd="/tmp")
 
         async def fake_exec(*args, **kwargs):
@@ -1265,7 +1494,10 @@ class TestPiRunnerSpawnFailureDetection:
 
         with (
             patch("wave_server.engine.runner.shutil.which", return_value=PI_BIN),
-            patch("wave_server.engine.runner.asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch(
+                "wave_server.engine.runner.asyncio.create_subprocess_exec",
+                side_effect=fake_exec,
+            ),
         ):
             runner = PiRunner()
             result = await runner.spawn(config)

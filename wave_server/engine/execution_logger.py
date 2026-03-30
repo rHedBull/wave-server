@@ -124,7 +124,7 @@ class ExecutionLogger:
 
     def execution_started(self) -> None:
         self._start_time = time.monotonic()
-        self._log(f"# Execution Log")
+        self._log("# Execution Log")
         self._log("")
         self._log(f"Started: {_now_iso()}")
         self._log(f"Execution ID: `{self.execution_id}`")
@@ -156,17 +156,26 @@ class ExecutionLogger:
         self._log("")
         self._log(f"Finished: {_now_iso()}")
         self._log(f"Duration: {_duration_str(total_ms)}")
-        self._log(f"Tasks: {passed} passed, {failed} failed, {skipped} skipped ({passed + failed + skipped}/{self.total_tasks})")
+        self._log(
+            f"Tasks: {passed} passed, {failed} failed, {skipped} skipped ({passed + failed + skipped}/{self.total_tasks})"
+        )
         if timed_out:
             self._log(f"Timed out: {timed_out}")
-        self._log(f"Waves: {len(self._waves)}/{self.wave_count}" + (
-            " (stopped at failure)" if not all_passed and len(self._waves) < self.wave_count else ""
-        ))
+        self._log(
+            f"Waves: {len(self._waves)}/{self.wave_count}"
+            + (
+                " (stopped at failure)"
+                if not all_passed and len(self._waves) < self.wave_count
+                else ""
+            )
+        )
 
         if self._total_cost > 0:
             self._log(f"Total cost: ${self._total_cost:.4f}")
         if self._total_input_tokens or self._total_output_tokens:
-            self._log(f"Total tokens: {self._total_input_tokens:,} in, {self._total_output_tokens:,} out")
+            self._log(
+                f"Total tokens: {self._total_input_tokens:,} in, {self._total_output_tokens:,} out"
+            )
 
         # Per-wave summary
         self._log("")
@@ -182,14 +191,18 @@ class ExecutionLogger:
             self._log("### Failed Tasks")
             self._log("")
             for t in failed_tasks:
-                self._log(f"- **{t.task_id}** [{t.agent}]: {t.title} ({_duration_str(t.duration_ms)})")
+                self._log(
+                    f"- **{t.task_id}** [{t.agent}]: {t.title} ({_duration_str(t.duration_ms)})"
+                )
                 if t.error_snippet:
                     self._log(f"  > {t.error_snippet}")
 
     # ── Wave Events ───────────────────────────────────────────
 
     def wave_started(self, name: str, index: int) -> None:
-        self._current_wave = WaveRecord(name=name, index=index, passed=False, started_at=_now_iso())
+        self._current_wave = WaveRecord(
+            name=name, index=index, passed=False, started_at=_now_iso()
+        )
         self._log(f"## {_elapsed_str(self._start_time)} Wave {index + 1}: {name}")
         self._log("")
 
@@ -201,9 +214,15 @@ class ExecutionLogger:
 
         icon = "✅" if passed else "❌"
         task_count = len(self._current_wave.tasks) if self._current_wave else 0
-        passed_count = sum(1 for t in (self._current_wave.tasks if self._current_wave else []) if t.exit_code == 0)
+        passed_count = sum(
+            1
+            for t in (self._current_wave.tasks if self._current_wave else [])
+            if t.exit_code == 0
+        )
         self._log("")
-        self._log(f"{_elapsed_str(self._start_time)} {icon} Wave {index + 1} {'passed' if passed else 'FAILED'} — {passed_count}/{task_count} tasks")
+        self._log(
+            f"{_elapsed_str(self._start_time)} {icon} Wave {index + 1} {'passed' if passed else 'FAILED'} — {passed_count}/{task_count} tasks"
+        )
         self._log("")
         self._current_wave = None
 
@@ -214,14 +233,18 @@ class ExecutionLogger:
         self._log("")
 
     def phase_skipped(self, phase: str, reason: str) -> None:
-        self._log(f"{_elapsed_str(self._start_time)} ⏭️ {phase.title()} skipped — {reason}")
+        self._log(
+            f"{_elapsed_str(self._start_time)} ⏭️ {phase.title()} skipped — {reason}"
+        )
         self._log("")
 
     # ── Task Events ───────────────────────────────────────────
 
     def task_started(self, phase: str, task: Task) -> None:
         self._task_start_times[task.id] = time.monotonic()
-        self._log(f"{_elapsed_str(self._start_time)} ▶ {_agent_icon(task.agent)} **{task.id}** [{task.agent}]: {task.title}")
+        self._log(
+            f"{_elapsed_str(self._start_time)} ▶ {_agent_icon(task.agent)} **{task.id}** [{task.agent}]: {task.title}"
+        )
 
     def task_ended(self, phase: str, task: Task, result: TaskResult) -> None:
         icon = _status_icon(result.exit_code, result.timed_out)
@@ -235,7 +258,9 @@ class ExecutionLogger:
         # Log brief error for failed tasks
         error_snippet = ""
         if result.exit_code > 0 and result.stderr:
-            err_lines = [l.strip() for l in result.stderr.split("\n") if l.strip()][:3]
+            err_lines = [
+                line.strip() for line in result.stderr.split("\n") if line.strip()
+            ][:3]
             if err_lines:
                 error_snippet = err_lines[0][:200]
                 for line in err_lines:
@@ -243,21 +268,25 @@ class ExecutionLogger:
 
         # Track in current wave
         if self._current_wave is not None:
-            self._current_wave.tasks.append(TaskRecord(
-                task_id=task.id,
-                title=task.title,
-                agent=task.agent,
-                phase=phase,
-                exit_code=result.exit_code,
-                duration_ms=result.duration_ms,
-                timed_out=result.timed_out,
-                error_snippet=error_snippet,
-            ))
+            self._current_wave.tasks.append(
+                TaskRecord(
+                    task_id=task.id,
+                    title=task.title,
+                    agent=task.agent,
+                    phase=phase,
+                    exit_code=result.exit_code,
+                    duration_ms=result.duration_ms,
+                    timed_out=result.timed_out,
+                    error_snippet=error_snippet,
+                )
+            )
 
         # Accumulate cost/tokens from parsed log if available
         self._task_start_times.pop(task.id, None)
 
-    def add_cost(self, cost_usd: float, input_tokens: int = 0, output_tokens: int = 0) -> None:
+    def add_cost(
+        self, cost_usd: float, input_tokens: int = 0, output_tokens: int = 0
+    ) -> None:
         """Add cost/token data (called after parsing the task's stream-json)."""
         self._total_cost += cost_usd
         self._total_input_tokens += input_tokens
@@ -272,7 +301,9 @@ class ExecutionLogger:
     def feature_ended(self, name: str, passed: bool) -> None:
         if name != "default":
             icon = "✅" if passed else "❌"
-            self._log(f"{_elapsed_str(self._start_time)} {icon} Feature '{name}' {'passed' if passed else 'FAILED'}")
+            self._log(
+                f"{_elapsed_str(self._start_time)} {icon} Feature '{name}' {'passed' if passed else 'FAILED'}"
+            )
             self._log("")
 
     # ── Misc Events ───────────────────────────────────────────

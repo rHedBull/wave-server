@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -148,7 +147,9 @@ class MockRunner:
         exit_code = self.results.get(config.task_id, 0)
         return RunnerResult(
             exit_code=exit_code,
-            stdout=json.dumps({"type": "result", "result": f"Output for {config.task_id}"}),
+            stdout=json.dumps(
+                {"type": "result", "result": f"Output for {config.task_id}"}
+            ),
             stderr="" if exit_code == 0 else f"Error in {config.task_id}",
         )
 
@@ -286,9 +287,7 @@ class TestNoRepoConfigured:
 
     @pytest.mark.asyncio
     async def test_fails_immediately(self, test_db):
-        _, seq_id, exec_id = await _setup_project_and_sequence(
-            test_db, repo_path=None
-        )
+        _, seq_id, exec_id = await _setup_project_and_sequence(test_db, repo_path=None)
         from wave_server.engine.execution_manager import _run_execution
 
         await _run_execution(exec_id, seq_id)
@@ -298,9 +297,7 @@ class TestNoRepoConfigured:
 
     @pytest.mark.asyncio
     async def test_emits_error_event(self, test_db):
-        _, seq_id, exec_id = await _setup_project_and_sequence(
-            test_db, repo_path=None
-        )
+        _, seq_id, exec_id = await _setup_project_and_sequence(test_db, repo_path=None)
         from wave_server.engine.execution_manager import _run_execution
 
         await _run_execution(exec_id, seq_id)
@@ -473,7 +470,9 @@ class TestSuccessfulExecution:
         assert _mock_storage.write_output.call_count >= 2
 
     @pytest.mark.asyncio
-    async def test_storage_write_transcript_called(self, test_db, _mock_storage, tmp_path):
+    async def test_storage_write_transcript_called(
+        self, test_db, _mock_storage, tmp_path
+    ):
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
         _, seq_id, exec_id = await _setup_project_and_sequence(
@@ -528,7 +527,9 @@ class TestFailedTaskExecution:
         assert failed_events[0].task_id == "1-1"
 
     @pytest.mark.asyncio
-    async def test_wave_completed_with_passed_false(self, test_db, _mock_runner, tmp_path):
+    async def test_wave_completed_with_passed_false(
+        self, test_db, _mock_runner, tmp_path
+    ):
         _mock_runner.results = {"1-1": 1}
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -547,7 +548,9 @@ class TestFailedTaskExecution:
         assert payload["passed"] is False
 
     @pytest.mark.asyncio
-    async def test_second_task_skipped_on_dep_failure(self, test_db, _mock_runner, tmp_path):
+    async def test_second_task_skipped_on_dep_failure(
+        self, test_db, _mock_runner, tmp_path
+    ):
         _mock_runner.results = {"1-1": 1}
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -591,7 +594,9 @@ class TestMultiWaveExecution:
         assert len(phase_events) == 2  # One per wave
 
     @pytest.mark.asyncio
-    async def test_wave1_failure_stops_wave2(self, test_db, _mock_storage, _mock_runner, tmp_path):
+    async def test_wave1_failure_stops_wave2(
+        self, test_db, _mock_storage, _mock_runner, tmp_path
+    ):
         _mock_storage.read_plan.return_value = TWO_WAVE_PLAN
         _mock_runner.results = {"1-1": 1}  # Wave 1 task fails
         repo_dir = tmp_path / "repo"
@@ -649,6 +654,7 @@ class TestContextFileInjection:
             return_value=CapturingRunner(),
         ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
             await asyncio.sleep(0.1)
 
@@ -694,8 +700,12 @@ class TestSessionConcurrency:
         task_completed_count = event_types.count("task_completed")
 
         # With 2 tasks, we expect 2 started + 2 completed
-        assert task_started_count == 2, f"Expected 2 task_started, got {task_started_count}"
-        assert task_completed_count == 2, f"Expected 2 task_completed, got {task_completed_count}"
+        assert task_started_count == 2, (
+            f"Expected 2 task_started, got {task_started_count}"
+        )
+        assert task_completed_count == 2, (
+            f"Expected 2 task_completed, got {task_completed_count}"
+        )
 
     @pytest.mark.asyncio
     async def test_completed_count_updates(self, test_db, tmp_path):
@@ -714,7 +724,9 @@ class TestSessionConcurrency:
         assert exc.completed_tasks == 2
 
     @pytest.mark.asyncio
-    async def test_concurrent_tasks_no_lost_events(self, test_db, _mock_storage, tmp_path):
+    async def test_concurrent_tasks_no_lost_events(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """With many parallel tasks, no events should be lost.
 
         This tests a plan with multiple independent tasks in wave 1
@@ -779,8 +791,7 @@ Stress test concurrent events
 
         # All 4 tasks should have started and completed events
         assert task_started_count == 4, (
-            f"Expected 4 task_started, got {task_started_count}. "
-            f"Events: {event_types}"
+            f"Expected 4 task_started, got {task_started_count}. Events: {event_types}"
         )
         assert task_completed_count == 4, (
             f"Expected 4 task_completed, got {task_completed_count}. "
@@ -788,7 +799,9 @@ Stress test concurrent events
         )
 
     @pytest.mark.asyncio
-    async def test_fire_and_forget_events_with_slow_tasks(self, test_db, _mock_storage, tmp_path):
+    async def test_fire_and_forget_events_with_slow_tasks(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Slow tasks mean more time between fire-and-forget DB writes."""
         _mock_storage.read_plan.return_value = SIMPLE_PLAN
         repo_dir = tmp_path / "repo"
@@ -804,6 +817,7 @@ Stress test concurrent events
             return_value=slow_runner,
         ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
             await asyncio.sleep(0.3)
 
@@ -867,6 +881,7 @@ class TestExceptionHandling:
             return_value=ExplodingRunner(),
         ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -893,11 +908,13 @@ class TestExceptionHandling:
             return_value=ExplodingRunner(),
         ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
         error_events = [
-            e for e in events
+            e
+            for e in events
             if e.event_type == "run_completed"
             and "Boom" in json.loads(e.payload).get("error", "")
         ]
@@ -913,6 +930,7 @@ class TestMissingRecords:
     @pytest.mark.asyncio
     async def test_nonexistent_execution_returns_silently(self, test_db):
         from wave_server.engine.execution_manager import _run_execution
+
         # Should not raise
         await _run_execution("nonexistent-id", "nonexistent-seq")
 
@@ -934,6 +952,7 @@ class TestMissingRecords:
             exec_id = exc.id
 
         from wave_server.engine.execution_manager import _run_execution
+
         # Pass valid execution but wrong sequence
         await _run_execution(exec_id, "wrong-sequence-id")
 
@@ -1119,14 +1138,16 @@ class TestContinuation:
 # ── Tests: Pi runtime parser dispatch ─────────────────────────
 
 # Sample pi JSONL output for the mock runner to return
-_PI_JSONL_TASK_OUTPUT = "\n".join([
-    '{"type":"session","version":3,"id":"s1","timestamp":"2026-03-07T17:00:00Z","cwd":"/tmp"}',
-    '{"type":"agent_start"}',
-    '{"type":"turn_start"}',
-    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Done task."}],"model":"claude-sonnet-4-5","usage":{"input":500,"output":30,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.002}}}}',
-    '{"type":"turn_end"}',
-    '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"Done task."}],"usage":{"input":500,"output":30,"cost":{"total":0.002}}}]}',
-])
+_PI_JSONL_TASK_OUTPUT = "\n".join(
+    [
+        '{"type":"session","version":3,"id":"s1","timestamp":"2026-03-07T17:00:00Z","cwd":"/tmp"}',
+        '{"type":"agent_start"}',
+        '{"type":"turn_start"}',
+        '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Done task."}],"model":"claude-sonnet-4-5","usage":{"input":500,"output":30,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.002}}}}',
+        '{"type":"turn_end"}',
+        '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"Done task."}],"usage":{"input":500,"output":30,"cost":{"total":0.002}}}]}',
+    ]
+)
 
 
 class PiMockRunner:
@@ -1173,9 +1194,7 @@ async def _setup_pi_execution(
         await db.commit()
         await db.refresh(project)
 
-        repo = ProjectRepository(
-            project_id=project.id, path=repo_path, label="test"
-        )
+        repo = ProjectRepository(project_id=project.id, path=repo_path, label="test")
         db.add(repo)
         await db.commit()
 
@@ -1200,7 +1219,9 @@ class TestPiRuntimeDispatch:
     """Verify that runtime='pi' executions use parse_pi_json for task logs."""
 
     @pytest.mark.asyncio
-    async def test_pi_execution_completes_successfully(self, test_db, _mock_storage, tmp_path):
+    async def test_pi_execution_completes_successfully(
+        self, test_db, _mock_storage, tmp_path
+    ):
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
@@ -1215,6 +1236,7 @@ class TestPiRuntimeDispatch:
                 test_db, repo_path=str(repo_dir)
             )
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
             await asyncio.sleep(0.1)
 
@@ -1238,17 +1260,22 @@ class TestPiRuntimeDispatch:
             ),
             patch(
                 "wave_server.engine.execution_manager.parse_pi_json",
-                wraps=__import__("wave_server.engine.log_parser", fromlist=["parse_pi_json"]).parse_pi_json,
+                wraps=__import__(
+                    "wave_server.engine.log_parser", fromlist=["parse_pi_json"]
+                ).parse_pi_json,
             ) as mock_pi_parse,
             patch(
                 "wave_server.engine.execution_manager.parse_stream_json",
-                wraps=__import__("wave_server.engine.log_parser", fromlist=["parse_stream_json"]).parse_stream_json,
+                wraps=__import__(
+                    "wave_server.engine.log_parser", fromlist=["parse_stream_json"]
+                ).parse_stream_json,
             ) as mock_claude_parse,
         ):
             _, seq_id, exec_id = await _setup_pi_execution(
                 test_db, repo_path=str(repo_dir)
             )
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
             await asyncio.sleep(0.1)
 
@@ -1258,7 +1285,9 @@ class TestPiRuntimeDispatch:
         assert mock_claude_parse.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_claude_runtime_still_uses_stream_json(self, test_db, _mock_storage, tmp_path):
+    async def test_claude_runtime_still_uses_stream_json(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Sanity check: runtime='claude' still calls parse_stream_json, not parse_pi_json."""
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -1276,13 +1305,16 @@ class TestPiRuntimeDispatch:
             ) as mock_pi_parse,
             patch(
                 "wave_server.engine.execution_manager.parse_stream_json",
-                wraps=__import__("wave_server.engine.log_parser", fromlist=["parse_stream_json"]).parse_stream_json,
+                wraps=__import__(
+                    "wave_server.engine.log_parser", fromlist=["parse_stream_json"]
+                ).parse_stream_json,
             ) as mock_claude_parse,
         ):
             _, seq_id, exec_id = await _setup_project_and_sequence(
                 test_db, repo_path=str(repo_dir)
             )
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
             await asyncio.sleep(0.1)
 
@@ -1290,7 +1322,9 @@ class TestPiRuntimeDispatch:
         assert mock_pi_parse.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_pi_task_log_written_with_correct_content(self, test_db, _mock_storage, tmp_path):
+    async def test_pi_task_log_written_with_correct_content(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Verify task logs written by pi runtime contain pi-parsed data."""
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -1306,6 +1340,7 @@ class TestPiRuntimeDispatch:
                 test_db, repo_path=str(repo_dir)
             )
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
             await asyncio.sleep(0.1)
 
@@ -1313,6 +1348,8 @@ class TestPiRuntimeDispatch:
         assert _mock_storage.write_task_log.call_count >= 2
         # Get the task_log content from first call
         call_args = _mock_storage.write_task_log.call_args_list[0]
-        task_log = call_args[0][2]  # positional arg: (exec_id, task_id, task_log, agent)
+        task_log = call_args[0][
+            2
+        ]  # positional arg: (exec_id, task_id, task_log, agent)
         assert "claude-sonnet-4-5" in task_log  # model from pi output
         assert "$0.0020" in task_log  # cost from pi output

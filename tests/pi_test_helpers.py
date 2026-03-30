@@ -23,42 +23,57 @@ def build_rate_limited_pi_output() -> str:
     This matches the actual output observed from pi during execution
     de49b90b when wave 3 tasks hit account rate limits.
     """
-    return "\n".join([
-        json.dumps({"type": "session", "version": 3, "id": "rate-limit-test"}),
-        json.dumps({"type": "agent_start"}),
-        json.dumps({"type": "turn_start"}),
-        json.dumps({
-            "type": "message_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-        }),
-        json.dumps({
-            "type": "turn_end",
-            "message": {
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            },
-            "toolResults": [],
-        }),
-        json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant", "content": [],
-                "stopReason": "error",
-                "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-            }],
-        }),
-        json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "attempt": 3,
-            "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-        }),
-    ])
+    return "\n".join(
+        [
+            json.dumps({"type": "session", "version": 3, "id": "rate-limit-test"}),
+            json.dumps({"type": "agent_start"}),
+            json.dumps({"type": "turn_start"}),
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "turn_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [],
+                        "stopReason": "error",
+                        "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+                    },
+                    "toolResults": [],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "agent_end",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": [],
+                            "stopReason": "error",
+                            "errorMessage": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+                        }
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "auto_retry_end",
+                    "success": False,
+                    "attempt": 3,
+                    "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+                }
+            ),
+        ]
+    )
 
 
 class RateLimitPiMockRunner:
@@ -91,23 +106,34 @@ class RateLimitPiMockRunner:
 
             # Apply the same detection logic PiRunner.spawn() uses
             detected = _detect_pi_output_failure(stdout)
+            rate_limited = False
             if detected:
                 exit_code = 1
-                stderr = detected
+                stderr = detected.error
+                rate_limited = detected.rate_limited
 
             return RunnerResult(
-                exit_code=exit_code, stdout=stdout, stderr=stderr,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                rate_limited=rate_limited,
             )
 
         # Normal success
-        stdout = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [{"type": "text", "text": f"Completed task {config.task_id}"}],
-                "stopReason": "stop",
-            }],
-        })
+        stdout = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": f"Completed task {config.task_id}"}
+                        ],
+                        "stopReason": "stop",
+                    }
+                ],
+            }
+        )
         return RunnerResult(exit_code=0, stdout=stdout, stderr="")
 
     def extract_final_output(self, stdout: str) -> str:

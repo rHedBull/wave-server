@@ -84,7 +84,9 @@ def mock_network():
 def mock_claude_cli():
     """Pretend claude is installed in all tests (CI has no claude binary).
     Override per-test to simulate missing CLI."""
-    with patch("wave_server.routes.executions.shutil.which", return_value="/usr/bin/claude"):
+    with patch(
+        "wave_server.routes.executions.shutil.which", return_value="/usr/bin/claude"
+    ):
         yield
 
 
@@ -94,7 +96,9 @@ async def ready_sequence(client: AsyncClient, tmp_path: Path):
     proj = await client.post("/api/v1/projects", json={"name": "test-proj"})
     pid = proj.json()["id"]
 
-    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "test-seq"})
+    seq = await client.post(
+        f"/api/v1/projects/{pid}/sequences", json={"name": "test-seq"}
+    )
     sid = seq.json()["id"]
 
     await client.post(

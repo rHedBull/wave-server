@@ -1,3 +1,4 @@
+import json
 import shutil
 import socket
 from datetime import datetime, timezone
@@ -11,16 +12,28 @@ from wave_server.config import settings
 from wave_server.db import get_db
 from wave_server.engine.dag import validate_plan
 from wave_server.engine.plan_parser import parse_plan
-from wave_server.models import Command, Event, Execution, ProjectRepository, Sequence
+from wave_server.models import (
+    Command,
+    Event,
+    Execution,
+    Project,
+    ProjectRepository,
+    Sequence,
+)
 from wave_server.schemas import (
     CommandResolve,
     CommandResponse,
     EventResponse,
     ExecutionCreate,
     ExecutionResponse,
+    PromoteRequest,
+    PromoteResponse,
     RerunRequest,
+    StandalonePromoteRequest,
 )
 from wave_server import storage
+from wave_server.engine.github_app import create_app_auth
+from wave_server.engine.github_pr import promote_pr
 
 router = APIRouter()
 
@@ -32,6 +45,127 @@ def _check_network() -> bool:
             return True
     except OSError:
         return False
+
+
+async def _github_api_get(
+    path: str,
+    github_token: str,
+    timeout: int = 10,
+) -> tuple[int, dict | None] | None:
+    """Perform an authenticated GET against the GitHub API.
+
+    Returns ``(status_code, json_body)`` or ``None`` on network / timeout errors.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                f"https://api.github.com{path}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            try:
+                body = resp.json()
+            except Exception:
+                body = None
+            return resp.status_code, body
+    except Exception:
+        return None
+
+
+async def _check_repo_accessible(
+    repo_url: str,
+    github_token: str,
+    *,
+    is_app_token: bool = False,
+) -> tuple[bool | None, str]:
+    """Check if the token can access the repository.
+
+    For GitHub App installation tokens (``is_app_token=True``), queries
+    ``GET /installation/repositories`` for a precise diagnostic.
+    For personal access tokens, falls back to ``GET /repos/{owner}/{repo}``.
+
+    Returns ``(accessible, detail)`` where *detail* is a human-readable
+    explanation when access is denied.
+    """
+    from wave_server.engine.repo_cache import _cache_key_from_url
+
+    owner_repo = _cache_key_from_url(repo_url)
+    if not owner_repo:
+        return None, ""
+
+    if is_app_token:
+        # App installation tokens can list their accessible repos
+        result = await _github_api_get(
+            "/installation/repositories?per_page=100",
+            github_token,
+        )
+        if result is None:
+            return None, ""
+        status, body = result
+        if status == 200 and body:
+            repos = [r.get("full_name") for r in body.get("repositories", [])]
+            if owner_repo in repos:
+                return True, ""
+            visible = ", ".join(repos[:10]) or "(none)"
+            if len(repos) > 10:
+                visible += f" … and {len(repos) - 10} more"
+            return False, (
+                f"The GitHub App does not have access to '{owner_repo}'. "
+                f"It can currently access: {visible}. "
+                f"Install the App on this repository via GitHub → Settings → "
+                f"Integrations → Configure."
+            )
+        # Unexpected status — fall through to generic check
+
+    # Generic check: can the token see this repo?
+    result = await _github_api_get(f"/repos/{owner_repo}", github_token)
+    if result is None:
+        return None, ""
+    status, _ = result
+    if status == 200:
+        return True, ""
+    if status == 404:
+        return False, (
+            f"Cannot access repository '{owner_repo}'. Verify the URL is correct "
+            f"and the token has access to the repository."
+        )
+    return None, ""
+
+
+async def _check_remote_branch_exists(
+    repo_url: str,
+    branch: str,
+    github_token: str,
+) -> bool | None:
+    """Check if *branch* exists on a GitHub remote repository.
+
+    Returns ``True`` if the branch is found, ``False`` if it is definitely
+    missing, or ``None`` if the check could not be performed (URL parse
+    error, auth issue, network failure).
+    """
+    from wave_server.engine.repo_cache import _cache_key_from_url
+
+    owner_repo = _cache_key_from_url(repo_url)
+    if not owner_repo:
+        return None
+
+    result = await _github_api_get(
+        f"/repos/{owner_repo}/branches/{branch}",
+        github_token,
+    )
+    if result is None:
+        return None
+    status, _ = result
+    if status == 200:
+        return True
+    if status == 404:
+        return False
+    return None
 
 
 async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> None:
@@ -61,14 +195,66 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
             "No repository configured for this project. "
             "Go to Project Settings and add a repository path first.",
         )
-    if not Path(repo.path).is_dir():
+    from wave_server.engine.repo_cache import is_repo_url
+
+    if not is_repo_url(repo.path) and not Path(repo.path).is_dir():
         raise HTTPException(
             422,
             f"Repository path does not exist or is not accessible: {repo.path}",
         )
 
-    # Claude CLI must be installed
-    if not shutil.which("claude"):
+    # For URL repos: resolve GitHub auth and verify the token can access the repo
+    project = await db.get(Project, project_id)
+    project_env: dict[str, str] = {}
+    if project and project.env_vars:
+        try:
+            project_env = json.loads(project.env_vars)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    github_token: str | None = None
+    is_app_token = False
+    if is_repo_url(repo.path):
+        # Resolve auth: project token > server token > coding app token
+        github_token = project_env.get("GITHUB_TOKEN") or settings.github_token
+        if not github_token:
+            coding_app = create_app_auth(
+                app_id=project_env.get("GITHUB_CODING_APP_ID")
+                or settings.github_coding_app_id,
+                private_key=project_env.get("GITHUB_CODING_APP_KEY")
+                or settings.github_coding_app_key,
+                installation_id=(
+                    project_env.get("GITHUB_CODING_APP_INSTALL_ID")
+                    or settings.github_coding_app_install_id
+                ),
+            )
+            if coding_app:
+                try:
+                    github_token = await coding_app.get_token()
+                    is_app_token = True
+                except Exception:
+                    pass
+
+        # Verify the token/App can actually access this repository
+        if github_token:
+            accessible, detail = await _check_repo_accessible(
+                repo.path,
+                github_token,
+                is_app_token=is_app_token,
+            )
+            if accessible is False:
+                raise HTTPException(422, detail)
+
+    # Agent CLI must be installed (pi or claude depending on runtime)
+    runtime = settings.runtime
+    if runtime == "pi":
+        if not shutil.which("pi"):
+            raise HTTPException(
+                422,
+                "The 'pi' CLI is not installed or not in PATH. "
+                "Install it: npm install -g @mariozechner/pi-coding-agent",
+            )
+    elif not shutil.which("claude"):
         raise HTTPException(
             422,
             "The 'claude' CLI is not installed or not in PATH. "
@@ -77,12 +263,24 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
 
     # Network must be reachable (runs in threadpool to avoid blocking the event loop)
     import asyncio
+
     reachable = await asyncio.get_event_loop().run_in_executor(None, _check_network)
     if not reachable:
         raise HTTPException(
             422,
             "Cannot reach api.anthropic.com — check your internet connection or firewall.",
         )
+
+    # PR target branch must exist on the remote (when configured)
+    pr_target = project_env.get("GITHUB_PR_TARGET") or settings.github_pr_target
+    if pr_target and is_repo_url(repo.path) and github_token:
+        exists = await _check_remote_branch_exists(repo.path, pr_target, github_token)
+        if exists is False:
+            raise HTTPException(
+                422,
+                f"PR target branch '{pr_target}' does not exist on the remote "
+                f"repository. Create it first or update the GITHUB_PR_TARGET setting.",
+            )
 
 
 @router.post(
@@ -105,6 +303,9 @@ async def create_execution(
             "timeout_ms": body.timeout_ms,
             "model": body.model,
             "agent_models": body.agent_models,
+            "initiated_by": body.initiated_by,
+            "reason": body.reason,
+            "callback_url": body.callback_url,
         }
     )
     execution = Execution(
@@ -119,6 +320,7 @@ async def create_execution(
     await db.refresh(execution)
     # Launch background execution
     from wave_server.engine.execution_manager import launch_execution
+
     await launch_execution(execution.id, sequence_id)
     return execution
 
@@ -127,9 +329,7 @@ async def create_execution(
     "/sequences/{sequence_id}/executions",
     response_model=list[ExecutionResponse],
 )
-async def list_executions(
-    sequence_id: str, db: AsyncSession = Depends(get_db)
-):
+async def list_executions(sequence_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Execution)
         .where(Execution.sequence_id == sequence_id)
@@ -147,15 +347,14 @@ async def get_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/executions/{execution_id}/cancel", status_code=204)
-async def cancel_execution(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def cancel_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
     if exc.status not in ("pending", "running"):
         raise HTTPException(400, "Execution is not running")
     from wave_server.engine.execution_manager import cancel_execution as cancel_bg
+
     cancel_bg(execution_id)
     exc.status = "cancelled"
     exc.finished_at = datetime.now(timezone.utc)
@@ -167,9 +366,7 @@ async def cancel_execution(
     response_model=ExecutionResponse,
     status_code=201,
 )
-async def continue_execution(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def continue_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
@@ -192,6 +389,7 @@ async def continue_execution(
     await db.commit()
     await db.refresh(new_exec)
     from wave_server.engine.execution_manager import launch_execution
+
     await launch_execution(new_exec.id, exc.sequence_id, continue_from=execution_id)
     return new_exec
 
@@ -208,7 +406,9 @@ async def rerun_execution(
     if not exc:
         raise HTTPException(404, "Execution not found")
     if exc.status not in ("completed", "failed", "cancelled"):
-        raise HTTPException(400, "Execution must be completed, failed, or cancelled to rerun tasks")
+        raise HTTPException(
+            400, "Execution must be completed, failed, or cancelled to rerun tasks"
+        )
     seq = await db.get(Sequence, exc.sequence_id)
     if not seq:
         raise HTTPException(404, "Sequence not found")
@@ -217,6 +417,7 @@ async def rerun_execution(
     # Validate that requested task IDs exist in the plan
     plan_content = storage.read_plan(exc.sequence_id)
     from wave_server.engine.plan_parser import parse_plan as _parse
+
     plan = _parse(plan_content)
     all_plan_ids: set[str] = set()
     for wave in plan.waves:
@@ -229,9 +430,7 @@ async def rerun_execution(
             all_plan_ids.add(t.id)
     unknown = set(body.task_ids) - all_plan_ids
     if unknown:
-        raise HTTPException(
-            422, f"Unknown task IDs: {', '.join(sorted(unknown))}"
-        )
+        raise HTTPException(422, f"Unknown task IDs: {', '.join(sorted(unknown))}")
 
     new_exec = Execution(
         sequence_id=exc.sequence_id,
@@ -247,6 +446,7 @@ async def rerun_execution(
     await db.commit()
     await db.refresh(new_exec)
     from wave_server.engine.execution_manager import launch_execution
+
     await launch_execution(
         new_exec.id,
         exc.sequence_id,
@@ -260,9 +460,7 @@ async def rerun_execution(
 # --- Events ---
 
 
-@router.get(
-    "/executions/{execution_id}/events", response_model=list[EventResponse]
-)
+@router.get("/executions/{execution_id}/events", response_model=list[EventResponse])
 async def list_events(
     execution_id: str,
     since: datetime | None = Query(None),
@@ -289,7 +487,11 @@ async def list_tasks(execution_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Event)
         .where(Event.execution_id == execution_id)
-        .where(Event.event_type.in_(["task_started", "task_completed", "task_failed", "task_skipped"]))
+        .where(
+            Event.event_type.in_(
+                ["task_started", "task_completed", "task_failed", "task_skipped"]
+            )
+        )
         .order_by(Event.created_at)
     )
     events = result.scalars().all()
@@ -361,9 +563,7 @@ async def get_task_transcript(
 
 
 @router.get("/executions/{execution_id}/task-logs")
-async def list_task_logs(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def list_task_logs(execution_id: str, db: AsyncSession = Depends(get_db)):
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
@@ -374,7 +574,9 @@ async def list_task_logs(
 async def search_task_logs(
     execution_id: str,
     q: str = Query(..., min_length=1, description="Search query"),
-    agent: str = Query("", description="Filter by agent: worker, test-writer, wave-verifier"),
+    agent: str = Query(
+        "", description="Filter by agent: worker, test-writer, wave-verifier"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     exc = await db.get(Execution, execution_id)
@@ -428,9 +630,7 @@ async def get_log(execution_id: str, db: AsyncSession = Depends(get_db)):
     "/executions/{execution_id}/blockers",
     response_model=list[CommandResponse],
 )
-async def list_blockers(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def list_blockers(execution_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Command)
         .where(Command.execution_id == execution_id)
@@ -461,3 +661,135 @@ async def resolve_blocker(
     await db.commit()
     await db.refresh(cmd)
     return cmd
+
+
+@router.post(
+    "/executions/{execution_id}/promote",
+    response_model=PromoteResponse,
+)
+async def promote_execution(
+    execution_id: str,
+    body: PromoteRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Promote a completed execution: approve + merge its PR, then create a promotion PR.
+
+    Uses the review-bot GitHub App to:
+    1. Approve the execution's PR (e.g. into dev)
+    2. Merge it (review-bot must be on the target branch's bypass list)
+    3. Create a promotion PR to another branch (e.g. dev → main)
+
+    The promotion PR requires human approval to merge.
+    """
+    if body is None:
+        body = PromoteRequest()
+
+    execution = await db.get(Execution, execution_id)
+    if not execution:
+        raise HTTPException(404, "Execution not found")
+
+    if execution.status != "completed":
+        raise HTTPException(
+            400, f"Execution is '{execution.status}', must be 'completed' to promote"
+        )
+
+    if not execution.pr_url:
+        raise HTTPException(400, "Execution has no PR to promote (was it pushed?)")
+
+    # Resolve project env vars for per-project app overrides
+    sequence = await db.get(Sequence, execution.sequence_id)
+    if not sequence:
+        raise HTTPException(404, "Sequence not found")
+
+    from wave_server.models import Project
+
+    project = await db.get(Project, sequence.project_id)
+    project_env: dict[str, str] = {}
+    if project and project.env_vars:
+        import json
+
+        try:
+            project_env = json.loads(project.env_vars)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Resolve review-bot app auth (project env > server config)
+    review_app_auth = create_app_auth(
+        app_id=project_env.get("GITHUB_REVIEW_APP_ID") or settings.github_review_app_id,
+        private_key=project_env.get("GITHUB_REVIEW_APP_KEY")
+        or settings.github_review_app_key,
+        installation_id=project_env.get("GITHUB_REVIEW_APP_INSTALL_ID")
+        or settings.github_review_app_install_id,
+    )
+
+    if not review_app_auth:
+        raise HTTPException(
+            400,
+            "Review-bot GitHub App not configured. "
+            "Set WAVE_GITHUB_REVIEW_APP_ID, WAVE_GITHUB_REVIEW_APP_KEY, "
+            "and WAVE_GITHUB_REVIEW_APP_INSTALL_ID in server config or project env vars.",
+        )
+
+    try:
+        review_token = await review_app_auth.get_token()
+    except Exception as e:
+        raise HTTPException(500, f"Failed to generate review-bot token: {e}")
+
+    promotion_target = body.promotion_target or "main"
+
+    result = await promote_pr(
+        review_token=review_token,
+        pr_url=execution.pr_url,
+        promotion_target=promotion_target,
+        merge_method=body.merge_method,
+    )
+
+    return PromoteResponse(
+        success=result.success,
+        merged_pr_url=result.merged_pr.url if result.merged_pr else None,
+        promotion_pr_url=result.promotion_pr_url,
+        error=result.error,
+    )
+
+
+@router.post("/promote", response_model=PromoteResponse)
+async def standalone_promote(
+    body: StandalonePromoteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Promote a PR: approve + merge, then create a promotion PR.
+
+    Standalone version — no execution ID needed. For quick-fixes
+    and external PRs that aren't tied to a Wave execution.
+    """
+    review_app_auth = create_app_auth(
+        app_id=settings.github_review_app_id,
+        private_key=settings.github_review_app_key,
+        installation_id=settings.github_review_app_install_id,
+    )
+
+    if not review_app_auth:
+        raise HTTPException(
+            400,
+            "Review-bot GitHub App not configured. "
+            "Set WAVE_GITHUB_REVIEW_APP_ID, WAVE_GITHUB_REVIEW_APP_KEY, "
+            "and WAVE_GITHUB_REVIEW_APP_INSTALL_ID in server config or project env vars.",
+        )
+
+    review_token = await review_app_auth.get_token()
+
+    promotion_target = body.promotion_target or "main"
+
+    result = await promote_pr(
+        review_token=review_token,
+        pr_url=body.pr_url,
+        promotion_target=promotion_target,
+        merge_method=body.merge_method,
+    )
+
+    return PromoteResponse(
+        success=result.success,
+        merged_pr_url=result.merged_pr.url if result.merged_pr else None,
+        promotion_pr_url=result.promotion_pr_url,
+        error=result.error,
+    )

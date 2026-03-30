@@ -3,7 +3,7 @@
 import pytest
 
 from wave_server.engine.verify_fix import attempt_fix_and_reverify, _build_fix_prompt
-from wave_server.engine.types import Task, TaskResult, RunnerConfig, RunnerResult
+from wave_server.engine.types import Task, RunnerConfig, RunnerResult
 
 
 # ── Mock runner ────────────────────────────────────────────────
@@ -20,7 +20,9 @@ class MockRunner:
         self.calls.append(config)
         if self.responses:
             return self.responses.pop(0)
-        return RunnerResult(exit_code=1, stdout="", stderr="no more responses", timed_out=False)
+        return RunnerResult(
+            exit_code=1, stdout="", stderr="no more responses", timed_out=False
+        )
 
     def extract_final_output(self, stdout: str) -> str:
         return stdout
@@ -79,12 +81,16 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_fix_succeeds_first_attempt(self):
         """Fix agent runs, verifier passes on first re-check."""
-        runner = MockRunner([
-            # Fix agent succeeds
-            RunnerResult(exit_code=0, stdout="Fixed!", stderr="", timed_out=False),
-            # Re-verification passes
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                # Fix agent succeeds
+                RunnerResult(exit_code=0, stdout="Fixed!", stderr="", timed_out=False),
+                # Re-verification passes
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(
@@ -104,16 +110,26 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_fix_succeeds_second_attempt(self):
         """First fix doesn't fully work, second attempt passes."""
-        runner = MockRunner([
-            # Attempt 1: fix agent succeeds
-            RunnerResult(exit_code=0, stdout="partial fix", stderr="", timed_out=False),
-            # Attempt 1: re-verify still fails
-            RunnerResult(exit_code=0, stdout=FAIL_OUTPUT, stderr="", timed_out=False),
-            # Attempt 2: fix agent succeeds
-            RunnerResult(exit_code=0, stdout="full fix", stderr="", timed_out=False),
-            # Attempt 2: re-verify passes
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                # Attempt 1: fix agent succeeds
+                RunnerResult(
+                    exit_code=0, stdout="partial fix", stderr="", timed_out=False
+                ),
+                # Attempt 1: re-verify still fails
+                RunnerResult(
+                    exit_code=0, stdout=FAIL_OUTPUT, stderr="", timed_out=False
+                ),
+                # Attempt 2: fix agent succeeds
+                RunnerResult(
+                    exit_code=0, stdout="full fix", stderr="", timed_out=False
+                ),
+                # Attempt 2: re-verify passes
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(
@@ -132,14 +148,20 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_all_attempts_exhausted(self):
         """Fix agent runs but verifier keeps failing."""
-        runner = MockRunner([
-            # Attempt 1: fix succeeds, verify fails
-            RunnerResult(exit_code=0, stdout="fix1", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=FAIL_OUTPUT, stderr="", timed_out=False),
-            # Attempt 2: fix succeeds, verify fails
-            RunnerResult(exit_code=0, stdout="fix2", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=FAIL_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                # Attempt 1: fix succeeds, verify fails
+                RunnerResult(exit_code=0, stdout="fix1", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=FAIL_OUTPUT, stderr="", timed_out=False
+                ),
+                # Attempt 2: fix succeeds, verify fails
+                RunnerResult(exit_code=0, stdout="fix2", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=FAIL_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(
@@ -157,13 +179,17 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_fix_agent_fails(self):
         """Fix agent itself crashes — skip to next attempt."""
-        runner = MockRunner([
-            # Attempt 1: fix agent crashes
-            RunnerResult(exit_code=1, stdout="", stderr="crash", timed_out=False),
-            # Attempt 2: fix agent succeeds, verify passes
-            RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                # Attempt 1: fix agent crashes
+                RunnerResult(exit_code=1, stdout="", stderr="crash", timed_out=False),
+                # Attempt 2: fix agent succeeds, verify passes
+                RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(
@@ -182,12 +208,14 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_reverify_nonzero_exit(self):
         """Re-verification process crashes (non-zero exit) — counts as failure."""
-        runner = MockRunner([
-            # Fix succeeds
-            RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
-            # Verify crashes
-            RunnerResult(exit_code=1, stdout="", stderr="crash", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                # Fix succeeds
+                RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
+                # Verify crashes
+                RunnerResult(exit_code=1, stdout="", stderr="crash", timed_out=False),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(
@@ -204,10 +232,14 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_max_attempts_one(self):
         """Single attempt — one fix, one verify."""
-        runner = MockRunner([
-            RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(
@@ -225,10 +257,14 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_uses_correct_models(self):
         """Fix agent uses worker model, verifier uses wave-verifier model."""
-        runner = MockRunner([
-            RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         await attempt_fix_and_reverify(
@@ -253,10 +289,14 @@ class TestAttemptFixAndReverify:
         """on_log callback is called at each step."""
         logs: list[str] = []
 
-        runner = MockRunner([
-            RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         await attempt_fix_and_reverify(
@@ -277,10 +317,14 @@ class TestAttemptFixAndReverify:
     @pytest.mark.asyncio
     async def test_verifier_prompt_passed_to_reverify(self):
         """The original verifier prompt is reused for re-verification."""
-        runner = MockRunner([
-            RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                RunnerResult(exit_code=0, stdout="fixed", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
         original_prompt = "You are verifying: check files exist, run tests"
 
@@ -301,14 +345,20 @@ class TestAttemptFixAndReverify:
         """Second fix attempt gets the updated verifier output from the failed re-verify."""
         second_fail = '{"status": "fail", "summary": "New issue found", "readyForNextWave": false}'
 
-        runner = MockRunner([
-            # Attempt 1: fix, re-verify still fails with different message
-            RunnerResult(exit_code=0, stdout="fix1", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=second_fail, stderr="", timed_out=False),
-            # Attempt 2: fix with updated feedback, re-verify passes
-            RunnerResult(exit_code=0, stdout="fix2", stderr="", timed_out=False),
-            RunnerResult(exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False),
-        ])
+        runner = MockRunner(
+            [
+                # Attempt 1: fix, re-verify still fails with different message
+                RunnerResult(exit_code=0, stdout="fix1", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=second_fail, stderr="", timed_out=False
+                ),
+                # Attempt 2: fix with updated feedback, re-verify passes
+                RunnerResult(exit_code=0, stdout="fix2", stderr="", timed_out=False),
+                RunnerResult(
+                    exit_code=0, stdout=PASS_OUTPUT, stderr="", timed_out=False
+                ),
+            ]
+        )
         task = _make_task()
 
         result = await attempt_fix_and_reverify(

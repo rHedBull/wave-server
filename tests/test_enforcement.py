@@ -151,7 +151,9 @@ class TestIsVerifierFailure:
         assert is_verifier_failure(output) is False
 
     def test_fail_status(self):
-        output = '{"status": "fail", "summary": "Missing files", "readyForNextWave": false}'
+        output = (
+            '{"status": "fail", "summary": "Missing files", "readyForNextWave": false}'
+        )
         assert is_verifier_failure(output) is True
 
     def test_fail_status_with_code_fences(self):

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 @dataclass
 class ToolCall:
     """A single tool invocation extracted from an assistant message."""
+
     name: str
     input_summary: str
     tool_use_id: str = ""
@@ -28,6 +29,7 @@ class ToolCall:
 @dataclass
 class AssistantTurn:
     """One assistant turn: text + optional tool calls."""
+
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
 
@@ -35,6 +37,7 @@ class AssistantTurn:
 @dataclass
 class ToolResult:
     """Result from a tool execution."""
+
     tool_use_id: str
     name: str = ""
     content: str = ""
@@ -44,6 +47,7 @@ class ToolResult:
 @dataclass
 class ParsedLog:
     """Fully parsed execution log."""
+
     model: str = ""
     turns: list[AssistantTurn | ToolResult] = field(default_factory=list)
     final_result: str = ""
@@ -246,14 +250,18 @@ def format_task_log(
     lines: list[str] = []
 
     # ── Header ──────────────────────────────────────────────
-    agent_emoji = "🧪" if agent == "test-writer" else "🔍" if agent == "wave-verifier" else "🔨"
+    agent_emoji = (
+        "🧪" if agent == "test-writer" else "🔍" if agent == "wave-verifier" else "🔨"
+    )
     status_emoji = "⏰" if timed_out else "✅" if exit_code == 0 else "❌"
 
     lines.append(f"# {status_emoji} {agent_emoji} {task_id}: {title}")
     lines.append("")
     lines.append(f"- **Agent**: {agent}")
     lines.append(f"- **Phase**: {phase}")
-    lines.append(f"- **Status**: {'TIMED OUT' if timed_out else 'passed' if exit_code == 0 else f'failed (exit {exit_code})'}")
+    lines.append(
+        f"- **Status**: {'TIMED OUT' if timed_out else 'passed' if exit_code == 0 else f'failed (exit {exit_code})'}"
+    )
     lines.append(f"- **Duration**: {_format_duration(duration_ms)}")
     if parsed.model:
         lines.append(f"- **Model**: {parsed.model}")
@@ -306,16 +314,19 @@ def format_task_log(
                 # Truncate very long text blocks
                 text = entry.text
                 if len(text) > 5000:
-                    text = text[:5000] + f"\n\n... ({len(entry.text) - 5000} chars truncated)"
+                    text = (
+                        text[:5000]
+                        + f"\n\n... ({len(entry.text) - 5000} chars truncated)"
+                    )
                 lines.append(text)
                 lines.append("")
 
             for tc in entry.tool_calls:
                 lines.append(f"**→ {tc.name}**")
                 if tc.input_summary:
-                    lines.append(f"```")
+                    lines.append("```")
                     lines.append(tc.input_summary)
-                    lines.append(f"```")
+                    lines.append("```")
                 lines.append("")
 
         elif isinstance(entry, ToolResult):
@@ -325,7 +336,10 @@ def format_task_log(
             if entry.content:
                 content = entry.content
                 if len(content) > 3000:
-                    content = content[:3000] + f"\n... ({len(entry.content) - 3000} chars truncated)"
+                    content = (
+                        content[:3000]
+                        + f"\n... ({len(entry.content) - 3000} chars truncated)"
+                    )
                 lines.append("```")
                 lines.append(content)
                 lines.append("```")

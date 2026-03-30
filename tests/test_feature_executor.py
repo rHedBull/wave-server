@@ -5,7 +5,7 @@ import json
 import pytest
 
 from wave_server.engine.feature_executor import execute_feature
-from wave_server.engine.types import Feature, RunnerConfig, RunnerResult, Task, TaskResult
+from wave_server.engine.types import Feature, RunnerConfig, RunnerResult, Task
 
 from pi_test_helpers import RateLimitPiMockRunner
 
@@ -135,9 +135,7 @@ class TestSkipTasks:
             tasks=[_task("t1"), _task("t2")],
         )
         runner = MockRunner()
-        result = await execute_feature(
-            feature, runner, skip_task_ids={"t1"}
-        )
+        result = await execute_feature(feature, runner, skip_task_ids={"t1"})
         assert result.passed
         assert "t1" not in runner.spawned
         assert "t2" in runner.spawned
@@ -146,9 +144,7 @@ class TestSkipTasks:
     async def test_skipped_task_has_zero_exit_code(self):
         feature = Feature(name="resume", tasks=[_task("t1")])
         runner = MockRunner()
-        result = await execute_feature(
-            feature, runner, skip_task_ids={"t1"}
-        )
+        result = await execute_feature(feature, runner, skip_task_ids={"t1"})
         assert result.task_results[0].exit_code == 0
         assert "Resumed" in result.task_results[0].output
 
@@ -178,9 +174,7 @@ class TestCallbacks:
         await execute_feature(
             feature,
             runner,
-            on_task_end=lambda task, result: ended.append(
-                (task.id, result.exit_code)
-            ),
+            on_task_end=lambda task, result: ended.append((task.id, result.exit_code)),
         )
         assert ("t1", 0) in ended
 

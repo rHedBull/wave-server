@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import shutil
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from wave_server.engine.types import RunnerConfig, RunnerResult
@@ -21,14 +22,40 @@ class AgentRunner(Protocol):
     def extract_final_output(self, stdout: str) -> str: ...
 
 
-def _detect_pi_output_failure(stdout: str) -> str | None:
+@dataclass
+class _PiOutputFailure:
+    """Result of inspecting pi's JSON output for fatal errors."""
+
+    error: str
+    rate_limited: bool = False
+
+
+# Patterns that indicate a rate-limit / overload (vs. a real task failure)
+_RATE_LIMIT_PATTERNS = [
+    "rate_limit",
+    "rate limit",
+    "429",
+    "overloaded",
+    "overloaded_error",
+    "529",
+    "too many requests",
+]
+
+
+def _is_rate_limit_message(msg: str) -> bool:
+    """Check if an error message indicates a rate limit / overload."""
+    lower = msg.lower()
+    return any(p in lower for p in _RATE_LIMIT_PATTERNS)
+
+
+def _detect_pi_output_failure(stdout: str) -> _PiOutputFailure | None:
     """Scan pi's JSON output for fatal errors that pi doesn't reflect in its exit code.
 
     Pi CLI exits 0 even when it encounters rate limits, API overload errors,
     or other fatal conditions. This function inspects the structured output
     to detect these failures.
 
-    Returns an error description string if a failure is detected, None otherwise.
+    Returns a _PiOutputFailure if a failure is detected, None otherwise.
     """
     has_auto_retry_failure = False
     auto_retry_error = ""
@@ -72,7 +99,10 @@ def _detect_pi_output_failure(stdout: str) -> str | None:
                 for m in messages:
                     if m.get("role") == "assistant":
                         for block in m.get("content", []):
-                            if block.get("type") == "text" and block.get("text", "").strip():
+                            if (
+                                block.get("type") == "text"
+                                and block.get("text", "").strip()
+                            ):
                                 had_any_successful_output = True
                             elif block.get("type") == "toolCall":
                                 had_any_successful_output = True
@@ -88,11 +118,19 @@ def _detect_pi_output_failure(stdout: str) -> str | None:
 
     # auto_retry_end with success=false is the strongest signal
     if has_auto_retry_failure:
-        return f"Pi task failed after retries exhausted: {auto_retry_error}"
+        error = f"Pi task failed after retries exhausted: {auto_retry_error}"
+        return _PiOutputFailure(
+            error=error,
+            rate_limited=_is_rate_limit_message(auto_retry_error),
+        )
 
     # agent_end with error stop reason and no useful output
     if last_stop_reason == "error" and not had_any_successful_output:
-        return f"Pi task ended with error (no output produced): {last_agent_end_error}"
+        error = f"Pi task ended with error (no output produced): {last_agent_end_error}"
+        return _PiOutputFailure(
+            error=error,
+            rate_limited=_is_rate_limit_message(last_agent_end_error),
+        )
 
     return None
 
@@ -116,13 +154,15 @@ class PiRunner:
         cmd = [
             pi_bin,
             "--print",
-            "--mode", "json",
+            "--mode",
+            "json",
             "--no-extensions",
             "--no-skills",
             "--no-prompt-templates",
             "--no-themes",
             "--no-session",
-            "--tools", "read,bash,edit,write",
+            "--tools",
+            "read,bash,edit,write",
         ]
         if config.model:
             cmd += ["--model", config.model]
@@ -145,7 +185,6 @@ class PiRunner:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
             )
 
             timed_out = False
@@ -166,23 +205,26 @@ class PiRunner:
 
             # Pi exits 0 even on fatal errors (rate limits, overloaded, etc.).
             # Inspect the JSON output to detect these failures.
+            rate_limited = False
             if exit_code == 0 and not timed_out:
                 detected = _detect_pi_output_failure(stdout_str)
                 if detected:
                     exit_code = 1
-                    stderr_str = (stderr_str + "\n" + detected).strip()
+                    stderr_str = (stderr_str + "\n" + detected.error).strip()
+                    rate_limited = detected.rate_limited
 
             return RunnerResult(
                 exit_code=exit_code,
                 stdout=stdout_str,
                 stderr=stderr_str,
                 timed_out=timed_out,
+                rate_limited=rate_limited,
             )
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             return RunnerResult(
                 exit_code=1,
                 stdout="",
-                stderr="pi CLI not found. Install pi: npm install -g @mariozechner/pi-coding-agent",
+                stderr=f"pi spawn failed (FileNotFoundError): {e}",
                 timed_out=False,
             )
 
@@ -201,7 +243,10 @@ class PiRunner:
                     for m in reversed(messages):
                         if m.get("role") == "assistant":
                             for block in m.get("content", []):
-                                if block.get("type") == "text" and block.get("text", "").strip():
+                                if (
+                                    block.get("type") == "text"
+                                    and block.get("text", "").strip()
+                                ):
                                     result_parts.append(block["text"])
                             if result_parts:
                                 break
@@ -209,7 +254,10 @@ class PiRunner:
                     m = msg.get("message", {})
                     if m.get("role") == "assistant":
                         for block in m.get("content", []):
-                            if block.get("type") == "text" and block.get("text", "").strip():
+                            if (
+                                block.get("type") == "text"
+                                and block.get("text", "").strip()
+                            ):
                                 result_parts.append(block["text"])
             except (json.JSONDecodeError, KeyError):
                 continue
@@ -218,7 +266,7 @@ class PiRunner:
             return result_parts[-1]  # Last assistant text is the final output
 
         # Fallback: return last non-empty lines
-        lines = [l for l in stdout.split("\n") if l.strip()]
+        lines = [line for line in stdout.split("\n") if line.strip()]
         return "\n".join(lines[-10:]) if lines else "(no output)"
 
 
@@ -255,7 +303,6 @@ class ClaudeCodeRunner:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
             )
 
             timed_out = False
@@ -308,7 +355,7 @@ class ClaudeCodeRunner:
             return "\n".join(result_parts)
 
         # Fallback: return last non-empty lines
-        lines = [l for l in stdout.split("\n") if l.strip()]
+        lines = [line for line in stdout.split("\n") if line.strip()]
         return "\n".join(lines[-10:]) if lines else "(no output)"
 
 

@@ -19,32 +19,41 @@ class TestExtractFinalOutput:
         assert self.runner.extract_final_output(stdout) == "Hello world"
 
     def test_assistant_type_with_text_blocks(self):
-        stdout = json.dumps({
-            "type": "assistant",
-            "content": [
-                {"type": "text", "text": "First block"},
-                {"type": "text", "text": "Second block"},
-            ],
-        })
+        stdout = json.dumps(
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "text", "text": "First block"},
+                    {"type": "text", "text": "Second block"},
+                ],
+            }
+        )
         result = self.runner.extract_final_output(stdout)
         assert "First block" in result
         assert "Second block" in result
 
     def test_assistant_type_skips_non_text_blocks(self):
-        stdout = json.dumps({
-            "type": "assistant",
-            "content": [
-                {"type": "tool_use", "name": "bash"},
-                {"type": "text", "text": "Result text"},
-            ],
-        })
+        stdout = json.dumps(
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "tool_use", "name": "bash"},
+                    {"type": "text", "text": "Result text"},
+                ],
+            }
+        )
         result = self.runner.extract_final_output(stdout)
         assert result == "Result text"
 
     def test_mixed_message_types(self):
         lines = [
             json.dumps({"type": "system", "text": "Starting"}),
-            json.dumps({"type": "assistant", "content": [{"type": "text", "text": "Working..."}]}),
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "content": [{"type": "text", "text": "Working..."}],
+                }
+            ),
             json.dumps({"type": "result", "result": "Final answer"}),
         ]
         stdout = "\n".join(lines)
@@ -132,6 +141,7 @@ class TestGetRunner:
     def test_default_is_pi(self):
         runner = get_runner()
         from wave_server.engine.runner import PiRunner
+
         assert isinstance(runner, PiRunner)
 
     def test_unknown_runtime_raises(self):

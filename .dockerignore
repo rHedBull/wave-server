@@ -1,0 +1,16 @@
+data/
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.benchmarks/
+.ruff_cache/
+.git/
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.env.local
+*.png
+!wave-icon.png
+!dashboard/public/wave-icon.png

@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 
 from wave_server.engine.log_parser import (
     AssistantTurn,
@@ -25,20 +24,27 @@ def _make_stream(*events: dict) -> str:
 
 
 def _init_event(**kwargs) -> dict:
-    return {"type": "system", "subtype": "init", "model": "claude-sonnet-4-20250514", **kwargs}
+    return {
+        "type": "system",
+        "subtype": "init",
+        "model": "claude-sonnet-4-20250514",
+        **kwargs,
+    }
 
 
 def _assistant_event(text: str = "", tool_calls: list | None = None) -> dict:
     content = []
     if text:
         content.append({"type": "text", "text": text})
-    for tc in (tool_calls or []):
-        content.append({
-            "type": "tool_use",
-            "id": tc.get("id", "toolu_123"),
-            "name": tc["name"],
-            "input": tc.get("input", {}),
-        })
+    for tc in tool_calls or []:
+        content.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id", "toolu_123"),
+                "name": tc["name"],
+                "input": tc.get("input", {}),
+            }
+        )
     return {
         "type": "assistant",
         "message": {
@@ -48,7 +54,12 @@ def _assistant_event(text: str = "", tool_calls: list | None = None) -> dict:
     }
 
 
-def _tool_result_event(tool_use_id: str = "toolu_123", content: str = "", is_error: bool = False, name: str = "") -> dict:
+def _tool_result_event(
+    tool_use_id: str = "toolu_123",
+    content: str = "",
+    is_error: bool = False,
+    name: str = "",
+) -> dict:
     event = {
         "type": "tool",
         "tool_use_id": tool_use_id,
@@ -112,7 +123,13 @@ class TestParseStreamJson:
         raw = _make_stream(
             _assistant_event(
                 text="Let me check the file.",
-                tool_calls=[{"name": "Read", "input": {"path": "src/main.py"}, "id": "toolu_abc"}],
+                tool_calls=[
+                    {
+                        "name": "Read",
+                        "input": {"path": "src/main.py"},
+                        "id": "toolu_abc",
+                    }
+                ],
             ),
         )
         log = parse_stream_json(raw)
@@ -198,14 +215,16 @@ class TestParseStreamJson:
             _tool_result_event(content="def old_func(): pass"),
             _assistant_event(
                 text="Now I'll update it.",
-                tool_calls=[{
-                    "name": "Edit",
-                    "input": {
-                        "path": "src/lib.py",
-                        "oldText": "def old_func(): pass",
-                        "newText": "def new_func():\n    return 42",
-                    },
-                }],
+                tool_calls=[
+                    {
+                        "name": "Edit",
+                        "input": {
+                            "path": "src/lib.py",
+                            "oldText": "def old_func(): pass",
+                            "newText": "def new_func():\n    return 42",
+                        },
+                    }
+                ],
             ),
             _tool_result_event(content="Successfully edited"),
             _assistant_event(
@@ -214,7 +233,9 @@ class TestParseStreamJson:
             ),
             _tool_result_event(content="3 passed"),
             _assistant_event(text="All tests pass. Implementation complete."),
-            _result_event(result="All tests pass. Implementation complete.", num_turns=4),
+            _result_event(
+                result="All tests pass. Implementation complete.", num_turns=4
+            ),
         )
         log = parse_stream_json(raw)
         assert log.model == "claude-sonnet-4-20250514"
@@ -227,23 +248,31 @@ class TestParseStreamJson:
     def test_model_from_assistant_message(self):
         """Model can come from assistant message if no init event."""
         raw = _make_stream(
-            {"type": "assistant", "message": {"model": "claude-haiku-3", "content": [{"type": "text", "text": "hi"}]}},
+            {
+                "type": "assistant",
+                "message": {
+                    "model": "claude-haiku-3",
+                    "content": [{"type": "text", "text": "hi"}],
+                },
+            },
         )
         log = parse_stream_json(raw)
         assert log.model == "claude-haiku-3"
 
     def test_tool_result_with_list_content(self):
         """Tool result content can be a list of content blocks."""
-        raw = _make_stream({
-            "type": "tool",
-            "tool_use_id": "t1",
-            "tool": {"name": "Read"},
-            "content": [
-                {"type": "text", "text": "line 1"},
-                {"type": "text", "text": "line 2"},
-            ],
-            "is_error": False,
-        })
+        raw = _make_stream(
+            {
+                "type": "tool",
+                "tool_use_id": "t1",
+                "tool": {"name": "Read"},
+                "content": [
+                    {"type": "text", "text": "line 1"},
+                    {"type": "text", "text": "line 2"},
+                ],
+                "is_error": False,
+            }
+        )
         log = parse_stream_json(raw)
         tr = log.turns[0]
         assert isinstance(tr, ToolResult)
@@ -287,22 +316,29 @@ class TestSummarizeToolInput:
         assert result == "src/main.py"
 
     def test_read_with_offset_limit(self):
-        result = _summarize_tool_input("Read", {"path": "big.py", "offset": 100, "limit": 50})
+        result = _summarize_tool_input(
+            "Read", {"path": "big.py", "offset": 100, "limit": 50}
+        )
         assert "big.py" in result
         assert "offset=100" in result
         assert "limit=50" in result
 
     def test_write(self):
-        result = _summarize_tool_input("Write", {"path": "out.py", "content": "hello\nworld"})
+        result = _summarize_tool_input(
+            "Write", {"path": "out.py", "content": "hello\nworld"}
+        )
         assert "out.py" in result
         assert "hello" in result
 
     def test_edit(self):
-        result = _summarize_tool_input("Edit", {
-            "path": "f.py",
-            "oldText": "old code",
-            "newText": "new code",
-        })
+        result = _summarize_tool_input(
+            "Edit",
+            {
+                "path": "f.py",
+                "oldText": "old code",
+                "newText": "new code",
+            },
+        )
         assert "f.py" in result
         assert "old code" in result
         assert "new code" in result
@@ -317,7 +353,9 @@ class TestSummarizeToolInput:
         assert "**/*.py" in result
 
     def test_agent(self):
-        result = _summarize_tool_input("Agent", {"agent": "scout", "task": "find auth code"})
+        result = _summarize_tool_input(
+            "Agent", {"agent": "scout", "task": "find auth code"}
+        )
         assert "scout" in result
         assert "find auth code" in result
 
@@ -364,9 +402,12 @@ class TestFormatTaskLog:
             "parsed": ParsedLog(
                 model="claude-sonnet-4-20250514",
                 turns=[
-                    AssistantTurn(text="I'll implement auth.", tool_calls=[
-                        ToolCall(name="Bash", input_summary="pytest tests/"),
-                    ]),
+                    AssistantTurn(
+                        text="I'll implement auth.",
+                        tool_calls=[
+                            ToolCall(name="Bash", input_summary="pytest tests/"),
+                        ],
+                    ),
                     ToolResult(tool_use_id="t1", name="Bash", content="3 passed"),
                     AssistantTurn(text="All done."),
                 ],
@@ -448,8 +489,15 @@ class TestFormatTaskLog:
         assert "*(no output)*" in log
 
     def test_error_tool_result(self):
-        parsed = ParsedLog(turns=[
-            ToolResult(tool_use_id="t1", name="Bash", content="command failed", is_error=True),
-        ])
+        parsed = ParsedLog(
+            turns=[
+                ToolResult(
+                    tool_use_id="t1",
+                    name="Bash",
+                    content="command failed",
+                    is_error=True,
+                ),
+            ]
+        )
         log = self._make_log(parsed=parsed)
         assert "❌ ERROR" in log

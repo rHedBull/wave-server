@@ -69,7 +69,11 @@ async def _try_delete_branch(repo_root: str, branch: str) -> None:
 
 
 async def _try_resolve_conflicts(
-    cwd: str, source: str, target: str, runner: Any
+    cwd: str,
+    source: str,
+    target: str,
+    runner: Any,
+    on_log: Any | None = None,
 ) -> bool:
     """Attempt to resolve merge conflicts using an agent runner.
 
@@ -82,6 +86,12 @@ async def _try_resolve_conflicts(
         conflict_files = [f for f in conflict_output.split("\n") if f.strip()]
         if not conflict_files:
             return False
+
+        await _log(
+            on_log,
+            f"   ⚠️  Merge conflict in {len(conflict_files)} file(s): {', '.join(conflict_files)}",
+        )
+        await _log(on_log, "   🔧 Attempting agent-based conflict resolution…")
 
         from wave_server.engine.types import RunnerConfig
 
@@ -102,7 +112,7 @@ async def _try_resolve_conflicts(
             task_id="merge-conflict-resolution",
             prompt=prompt,
             cwd=cwd,
-            timeout_ms=120000,
+            timeout_ms=300000,
         )
 
         result = await runner.spawn(config)
@@ -111,10 +121,33 @@ async def _try_resolve_conflicts(
             code, remaining, _ = await _run_git(
                 ["diff", "--name-only", "--diff-filter=U"], cwd
             )
-            return not remaining.strip()
-    except Exception:
-        pass
+            if not remaining.strip():
+                await _log(on_log, "   ✅ Conflict resolution succeeded")
+                return True
+            else:
+                remaining_files = [f for f in remaining.split("\n") if f.strip()]
+                await _log(
+                    on_log,
+                    f"   ❌ Conflict resolution incomplete — {len(remaining_files)} file(s) still unresolved",
+                )
+                return False
+        else:
+            await _log(
+                on_log,
+                f"   ❌ Conflict resolution agent failed (exit code {result.exit_code})",
+            )
+    except Exception as exc:
+        await _log(on_log, f"   ❌ Conflict resolution error: {exc}")
     return False
+
+
+async def _log(on_log: Any | None, msg: str) -> None:
+    """Call a log callback, awaiting it if async."""
+    if on_log is None:
+        return
+    result = on_log(msg)
+    if asyncio.iscoroutine(result):
+        await result
 
 
 async def get_repo_root(cwd: str) -> str | None:
@@ -125,6 +158,35 @@ async def get_repo_root(cwd: str) -> str | None:
 async def get_current_branch(cwd: str) -> str | None:
     code, out, _ = await _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
     return out if code == 0 else None
+
+
+async def verify_branches_merged(
+    repo_root: str,
+    branches: list[str],
+) -> tuple[list[str], list[str]]:
+    """Check which branches have been merged into the current branch.
+
+    Returns (merged, unmerged) branch lists.
+    Successfully merged branches are deleted.
+    """
+    current = await get_current_branch(repo_root) or "main"
+    merged: list[str] = []
+    unmerged: list[str] = []
+
+    for branch in branches:
+        # Check if branch still has commits not in current branch
+        code, diff_out, _ = await _run_git(
+            ["log", f"{current}..{branch}", "--oneline"],
+            repo_root,
+        )
+        if code != 0 or not diff_out.strip():
+            # Branch merged or doesn't exist — clean up
+            await _try_delete_branch(repo_root, branch)
+            merged.append(branch)
+        else:
+            unmerged.append(branch)
+
+    return merged, unmerged
 
 
 async def is_git_repo(cwd: str) -> bool:
@@ -143,9 +205,7 @@ async def create_feature_worktree(
     if code != 0 and "already exists" not in err:
         return None
 
-    code, _, err = await _run_git(
-        ["worktree", "add", worktree_dir, branch], repo_root
-    )
+    code, _, err = await _run_git(["worktree", "add", worktree_dir, branch], repo_root)
     if code != 0:
         return None
 
@@ -161,16 +221,22 @@ async def merge_feature_branches(
     repo_root: str,
     worktrees: list[FeatureWorktree],
     results: list[dict],
-    runner: Any | None = None,
+    on_log: Any | None = None,
 ) -> list[MergeResult]:
     """Merge successful feature branches back into the current branch.
 
     Follows the pattern: commit → remove worktrees → merge branches.
-    Attempts agent-based conflict resolution if a runner is provided.
+    Branches that conflict are aborted and recorded — the caller is
+    responsible for handling unresolved conflicts (e.g. via a merge task).
     """
     merge_results: list[MergeResult] = []
     current_branch = await get_current_branch(repo_root) or "main"
     result_map = {r.get("name", ""): r for r in results}
+
+    passed_count = sum(1 for r in results if r.get("passed", False))
+    await _log(
+        on_log, f"Merging {passed_count} feature branch(es) into `{current_branch}`"
+    )
 
     # 1. Commit changes in each successful feature worktree
     for wt in worktrees:
@@ -196,13 +262,16 @@ async def merge_feature_branches(
             # that a continuation/rerun can reuse.  Deleting it would
             # permanently destroy work from tasks that succeeded within
             # the failed feature.
-            merge_results.append(MergeResult(
-                source=wt.branch,
-                target=current_branch,
-                success=False,
-                had_changes=False,
-                error=f"Feature {wt.feature_name} failed, skipping merge (branch preserved for retry)",
-            ))
+            await _log(on_log, f"⏭️  Skipping `{wt.feature_name}` (failed)")
+            merge_results.append(
+                MergeResult(
+                    source=wt.branch,
+                    target=current_branch,
+                    success=False,
+                    had_changes=False,
+                    error=f"Feature {wt.feature_name} failed, skipping merge (branch preserved for retry)",
+                )
+            )
             continue
 
         # Check if branch has changes
@@ -211,53 +280,59 @@ async def merge_feature_branches(
             repo_root,
         )
         if code == 0 and not diff_out.strip():
+            await _log(on_log, f"✅ `{wt.feature_name}` — no changes to merge")
             await _try_delete_branch(repo_root, wt.branch)
-            merge_results.append(MergeResult(
-                source=wt.branch,
-                target=current_branch,
-                success=True,
-                had_changes=False,
-            ))
+            merge_results.append(
+                MergeResult(
+                    source=wt.branch,
+                    target=current_branch,
+                    success=True,
+                    had_changes=False,
+                )
+            )
             continue
 
+        await _log(
+            on_log,
+            f"🔀 Merging `{wt.feature_name}` (`{wt.branch}` → `{current_branch}`)…",
+        )
+
         code, out, err = await _run_git(
-            ["merge", "--no-ff", wt.branch, "-m", f"pi: merge feature {wt.feature_name}"],
+            [
+                "merge",
+                "--no-ff",
+                wt.branch,
+                "-m",
+                f"pi: merge feature {wt.feature_name}",
+            ],
             repo_root,
         )
 
         if code == 0:
+            await _log(on_log, f"✅ `{wt.feature_name}` — merged cleanly")
             await _try_delete_branch(repo_root, wt.branch)
-            merge_results.append(MergeResult(
-                source=wt.branch,
-                target=current_branch,
-                success=True,
-                had_changes=True,
-            ))
-        else:
-            # Merge conflict — try agent resolution
-            resolved = False
-            if runner:
-                resolved = await _try_resolve_conflicts(
-                    repo_root, wt.branch, current_branch, runner
-                )
-
-            if resolved:
-                await _try_delete_branch(repo_root, wt.branch)
-                merge_results.append(MergeResult(
+            merge_results.append(
+                MergeResult(
                     source=wt.branch,
                     target=current_branch,
                     success=True,
                     had_changes=True,
-                ))
-            else:
-                await _run_git(["merge", "--abort"], repo_root)
-                merge_results.append(MergeResult(
+                )
+            )
+        else:
+            await _log(
+                on_log, f"⚠️  `{wt.feature_name}` — merge conflict, needs resolution"
+            )
+            await _run_git(["merge", "--abort"], repo_root)
+            merge_results.append(
+                MergeResult(
                     source=wt.branch,
                     target=current_branch,
                     success=False,
                     had_changes=True,
-                    error=f'Merge conflict — branch "{wt.branch}" preserved for manual resolution',
-                ))
+                    error=f'Merge conflict — branch "{wt.branch}" needs resolution',
+                )
+            )
 
     # Clean up the .wave-worktrees directory if empty
     wt_base = os.path.join(repo_root, ".wave-worktrees")
@@ -270,9 +345,7 @@ async def merge_feature_branches(
     return merge_results
 
 
-async def cleanup_worktrees(
-    repo_root: str, worktrees: list[FeatureWorktree]
-) -> None:
+async def cleanup_worktrees(repo_root: str, worktrees: list[FeatureWorktree]) -> None:
     """Remove worktrees and their branches."""
     for wt in worktrees:
         await _remove_worktree(repo_root, wt.dir)
@@ -308,8 +381,10 @@ async def create_sub_worktrees(
             task_slug = _branch_slug(task_id)
             branch = f"wave-{wave_num}/{feature_slug}--{task_slug}"
             worktree_dir = os.path.join(
-                feature_wt.dir, ".wave-sub-worktrees",
-                f"wave-{wave_num}", f"{feature_slug}--{task_slug}",
+                feature_wt.dir,
+                ".wave-sub-worktrees",
+                f"wave-{wave_num}",
+                f"{feature_slug}--{task_slug}",
             )
 
             os.makedirs(os.path.dirname(worktree_dir), exist_ok=True)
@@ -321,12 +396,14 @@ async def create_sub_worktrees(
             if code != 0:
                 raise RuntimeError(f"Failed to create sub-worktree: {err}")
 
-            sub_worktrees.append(SubWorktree(
-                task_id=task_id,
-                branch=branch,
-                dir=worktree_dir,
-                parent_branch=feature_wt.branch,
-            ))
+            sub_worktrees.append(
+                SubWorktree(
+                    task_id=task_id,
+                    branch=branch,
+                    dir=worktree_dir,
+                    parent_branch=feature_wt.branch,
+                )
+            )
     except Exception:
         # Partial creation — clean up and return empty (fall back to sequential)
         for sw in sub_worktrees:
@@ -337,9 +414,7 @@ async def create_sub_worktrees(
     return sub_worktrees
 
 
-async def commit_task_output(
-    cwd: str, task_id: str, title: str, agent: str
-) -> bool:
+async def commit_task_output(cwd: str, task_id: str, title: str, agent: str) -> bool:
     """Commit a task's output with a descriptive message.
 
     Returns True if a commit was made, False if nothing to commit or not a git repo.
@@ -350,7 +425,9 @@ async def commit_task_output(
         if not await _has_uncommitted_changes(cwd):
             return False
 
-        agent_tag = {"test-writer": "test", "wave-verifier": "verify"}.get(agent, "worker")
+        agent_tag = {"test-writer": "test", "wave-verifier": "verify"}.get(
+            agent, "worker"
+        )
         safe_title = title.replace('"', "'")[:80]
 
         code, _, _ = await _run_git(["add", "-A"], cwd)
@@ -371,6 +448,7 @@ async def merge_sub_worktrees(
     sub_worktrees: list[SubWorktree],
     results: list[dict],
     runner: Any | None = None,
+    on_log: Any | None = None,
 ) -> list[MergeResult]:
     """Merge sub-worktree branches back into the feature branch.
 
@@ -401,13 +479,15 @@ async def merge_sub_worktrees(
 
         if not r or r.get("exit_code", -1) != 0:
             await _try_delete_branch(feature_wt.repo_root, sw.branch)
-            merge_results.append(MergeResult(
-                source=sw.branch,
-                target=feature_wt.branch,
-                success=False,
-                had_changes=False,
-                error="Task failed — not merged",
-            ))
+            merge_results.append(
+                MergeResult(
+                    source=sw.branch,
+                    target=feature_wt.branch,
+                    success=False,
+                    had_changes=False,
+                    error="Task failed — not merged",
+                )
+            )
             continue
 
         # Check if branch has changes relative to parent
@@ -417,12 +497,14 @@ async def merge_sub_worktrees(
         )
         if code == 0 and not diff_out.strip():
             await _try_delete_branch(feature_wt.repo_root, sw.branch)
-            merge_results.append(MergeResult(
-                source=sw.branch,
-                target=feature_wt.branch,
-                success=True,
-                had_changes=False,
-            ))
+            merge_results.append(
+                MergeResult(
+                    source=sw.branch,
+                    target=feature_wt.branch,
+                    success=True,
+                    had_changes=False,
+                )
+            )
             continue
 
         # Merge into feature worktree
@@ -433,37 +515,47 @@ async def merge_sub_worktrees(
 
         if code == 0:
             await _try_delete_branch(feature_wt.repo_root, sw.branch)
-            merge_results.append(MergeResult(
-                source=sw.branch,
-                target=feature_wt.branch,
-                success=True,
-                had_changes=True,
-            ))
+            merge_results.append(
+                MergeResult(
+                    source=sw.branch,
+                    target=feature_wt.branch,
+                    success=True,
+                    had_changes=True,
+                )
+            )
         else:
             # Merge conflict — try agent resolution
             resolved = False
             if runner:
                 resolved = await _try_resolve_conflicts(
-                    feature_wt.dir, sw.branch, feature_wt.branch, runner
+                    feature_wt.dir,
+                    sw.branch,
+                    feature_wt.branch,
+                    runner,
+                    on_log=on_log,
                 )
 
             if resolved:
                 await _try_delete_branch(feature_wt.repo_root, sw.branch)
-                merge_results.append(MergeResult(
-                    source=sw.branch,
-                    target=feature_wt.branch,
-                    success=True,
-                    had_changes=True,
-                ))
+                merge_results.append(
+                    MergeResult(
+                        source=sw.branch,
+                        target=feature_wt.branch,
+                        success=True,
+                        had_changes=True,
+                    )
+                )
             else:
                 await _run_git(["merge", "--abort"], feature_wt.dir)
-                merge_results.append(MergeResult(
-                    source=sw.branch,
-                    target=feature_wt.branch,
-                    success=False,
-                    had_changes=True,
-                    error=f'Merge conflict — branch "{sw.branch}" preserved for manual resolution',
-                ))
+                merge_results.append(
+                    MergeResult(
+                        source=sw.branch,
+                        target=feature_wt.branch,
+                        success=False,
+                        had_changes=True,
+                        error=f'Merge conflict — branch "{sw.branch}" preserved for manual resolution',
+                    )
+                )
 
     return merge_results
 
@@ -527,6 +619,7 @@ async def merge_single_sub_worktree(
     title: str,
     agent: str,
     runner: Any | None = None,
+    on_log: Any | None = None,
 ) -> MergeResult:
     """Commit, remove, and merge a single sub-worktree back into the feature branch.
 
@@ -572,7 +665,11 @@ async def merge_single_sub_worktree(
     resolved = False
     if runner:
         resolved = await _try_resolve_conflicts(
-            feature_wt.dir, sw.branch, feature_wt.branch, runner
+            feature_wt.dir,
+            sw.branch,
+            feature_wt.branch,
+            runner,
+            on_log=on_log,
         )
 
     if resolved:
@@ -594,9 +691,7 @@ async def merge_single_sub_worktree(
     )
 
 
-async def cleanup_single_sub_worktree(
-    repo_root: str, sw: SubWorktree
-) -> None:
+async def cleanup_single_sub_worktree(repo_root: str, sw: SubWorktree) -> None:
     """Remove a single sub-worktree and its branch. Best-effort."""
     await _remove_worktree(repo_root, sw.dir)
     await _try_delete_branch(repo_root, sw.branch)
@@ -615,27 +710,16 @@ async def cleanup_all(
     repo_root: str,
     feature_worktrees: list[FeatureWorktree],
     sub_worktrees: list[SubWorktree] | None = None,
-    merged_branches: set[str] | None = None,
 ) -> None:
-    """Cleanup — remove worktree directories and only delete merged branches.
-
-    Branches that were NOT merged (failed features) are preserved so that
-    continuation/rerun executions can reuse the work committed on them.
-    Pass *merged_branches* to indicate which branches are safe to delete;
-    if ``None``, no branches are deleted (safe default).
-    """
-    safe_to_delete = merged_branches or set()
-
+    """Emergency cleanup — remove all worktrees and branches. Best-effort."""
     if sub_worktrees:
         for sw in sub_worktrees:
             await _remove_worktree(repo_root, sw.dir)
-            if sw.branch in safe_to_delete:
-                await _try_delete_branch(repo_root, sw.branch)
+            await _try_delete_branch(repo_root, sw.branch)
 
     for wt in feature_worktrees:
         await _remove_worktree(repo_root, wt.dir)
-        if wt.branch in safe_to_delete:
-            await _try_delete_branch(repo_root, wt.branch)
+        await _try_delete_branch(repo_root, wt.branch)
 
     await _run_git(["worktree", "prune"], repo_root)
 
@@ -643,9 +727,7 @@ async def cleanup_all(
     wt_base = os.path.join(repo_root, ".wave-worktrees")
     if os.path.isdir(wt_base):
         try:
-            remaining = os.listdir(wt_base)
-            if not remaining:
-                shutil.rmtree(wt_base, ignore_errors=True)
+            shutil.rmtree(wt_base, ignore_errors=True)
         except Exception:
             pass
 
@@ -724,9 +806,7 @@ async def create_work_branch(
 
     Returns (success, error_message).
     """
-    code, _, err = await _run_git(
-        ["checkout", "-b", branch_name, start_point], cwd
-    )
+    code, _, err = await _run_git(["checkout", "-b", branch_name, start_point], cwd)
     if code != 0:
         return False, f"Failed to create branch {branch_name}: {err}"
     return True, ""
@@ -823,11 +903,17 @@ async def create_pr(
     env = _build_git_env(github_token)
 
     proc = await asyncio.create_subprocess_exec(
-        "gh", "pr", "create",
-        "--base", target_branch,
-        "--head", work_branch,
-        "--title", title,
-        "--body", body,
+        "gh",
+        "pr",
+        "create",
+        "--base",
+        target_branch,
+        "--head",
+        work_branch,
+        "--title",
+        title,
+        "--body",
+        body,
         cwd=cwd,
         env=env,
         stdout=asyncio.subprocess.PIPE,
@@ -880,7 +966,8 @@ async def has_gh_cli() -> bool:
     """Check if the gh CLI is available."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "gh", "--version",
+            "gh",
+            "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
