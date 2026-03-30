@@ -171,9 +171,9 @@ async def test_map_concurrent():
     results = await map_concurrent(
         [1, 2, 3],
         2,
-        lambda x, i: asyncio.coroutine(lambda: x * 2)()
-        if False
-        else _async_double(x, i),
+        lambda x, i: (
+            asyncio.coroutine(lambda: x * 2)() if False else _async_double(x, i)
+        ),
     )
     assert results == [2, 4, 6]
 
