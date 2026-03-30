@@ -26,8 +26,10 @@ from wave_server.engine.git_worktree import (
     cleanup_all,
     commit_task_output,
     create_feature_worktree,
+    get_current_branch,
     is_git_repo,
     merge_feature_branches,
+    verify_branches_merged,
 )
 from wave_server.engine.runner import AgentRunner
 from wave_server.engine.types import (
@@ -310,22 +312,56 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 repo_root,
                 all_feature_worktrees,
                 [{"name": r.name, "passed": r.passed} for r in f_results],
-                runner=opts.runner,
+                on_log=opts.on_log,
             )
 
             for mr in merge_results:
                 await _call(opts.on_merge_result, mr)
 
-            merge_conflicts = [m for m in merge_results if not m.success and m.had_changes]
-            if merge_conflicts:
-                await _call(opts.on_log, "Merge conflicts detected — skipping integration")
-                return WaveResult(
-                    wave=wave.name,
-                    foundation_results=foundation_results,
-                    feature_results=feature_results,
-                    integration_results=integration_results,
-                    passed=False,
+            # Check for unresolved merge conflicts
+            unmerged = [m for m in merge_results if not m.success and m.had_changes]
+            if unmerged:
+                merge_task_id = f"w{opts.wave_num}-merge"
+                unmerged_branches = [m.source for m in unmerged]
+
+                merge_task = Task(
+                    id=merge_task_id,
+                    title=f"Merge {len(unmerged_branches)} conflicting feature branch(es)",
+                    agent="merge",
+                    description=_build_merge_description(
+                        unmerged_branches,
+                        await get_current_branch(repo_root) or "main",
+                    ),
                 )
+
+                merge_result = await run_task_with_runner(merge_task, "merge")
+
+                if merge_result.exit_code == 0:
+                    # Verify the branches are actually merged and clean up
+                    merged, still_unmerged = await verify_branches_merged(
+                        repo_root, unmerged_branches,
+                    )
+                    if still_unmerged:
+                        branch_list = ", ".join(f"`{b}`" for b in still_unmerged)
+                        await _call(opts.on_log, f"❌ Merge task completed but branches still unmerged: {branch_list}")
+                        return WaveResult(
+                            wave=wave.name,
+                            foundation_results=foundation_results,
+                            feature_results=feature_results,
+                            integration_results=integration_results,
+                            passed=False,
+                        )
+                    if merged:
+                        await _call(opts.on_log, f"✅ All conflicting branches merged successfully")
+                else:
+                    await _call(opts.on_log, "❌ Merge task failed — skipping integration")
+                    return WaveResult(
+                        wave=wave.name,
+                        foundation_results=foundation_results,
+                        feature_results=feature_results,
+                        integration_results=integration_results,
+                        passed=False,
+                    )
 
         if any(not r.passed for r in f_results):
             await _call(opts.on_log, "One or more features failed — skipping integration")
@@ -460,3 +496,20 @@ def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project
 {task.description}
 
 - Work continuously — do NOT stop to summarize progress or wait for feedback"""
+
+
+def _build_merge_description(unmerged_branches: list[str], target_branch: str) -> str:
+    """Build the description for an auto-generated merge task."""
+    branch_list = "\n".join(f"- `{b}`" for b in unmerged_branches)
+    return (
+        f"Merge the following feature branches into `{target_branch}`.\n"
+        f"These branches had conflicts during automatic merging and need manual resolution.\n\n"
+        f"**Branches to merge (in order):**\n{branch_list}\n\n"
+        f"For each branch:\n"
+        f"1. `git merge --no-ff <branch> -m \"pi: merge feature <branch>\"`\n"
+        f"2. If conflicts occur, resolve them by keeping ALL code from both sides\n"
+        f"3. `git add` resolved files, then `git commit --no-edit`\n"
+        f"4. Verify no conflicts remain: `git diff --name-only --diff-filter=U`\n\n"
+        f"After all branches are merged, verify with:\n"
+        f"`git log --oneline -10` to confirm all merge commits are present."
+    )

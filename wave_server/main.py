@@ -30,8 +30,10 @@ from wave_server.routes.health import router as health_router  # noqa: E402
 from wave_server.routes.projects import router as projects_router  # noqa: E402
 from wave_server.routes.sequences import router as sequences_router  # noqa: E402
 from wave_server.routes.executions import router as executions_router  # noqa: E402
+from wave_server.routes.quick_fix import router as quick_fix_router  # noqa: E402
 
 app.include_router(health_router, prefix="/api")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(sequences_router, prefix="/api/v1")
 app.include_router(executions_router, prefix="/api/v1")
+app.include_router(quick_fix_router, prefix="/api/v1")

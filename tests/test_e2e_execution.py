@@ -278,14 +278,19 @@ async def e2e_client(tmp_path: Path):
     # Point storage at tmp_path so artifacts don't pollute real data
     from wave_server.config import settings
     original_data_dir = settings.data_dir
+    original_rate_limit_enabled = settings.rate_limit_enabled
     settings.data_dir = tmp_path / "data"
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # Disable rate-limit pausing in e2e tests — these tests verify detection
+    # behavior, not pause-and-resume (which is tested in test_rate_limit.py).
+    settings.rate_limit_enabled = False
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
     settings.data_dir = original_data_dir
+    settings.rate_limit_enabled = original_rate_limit_enabled
     db_mod.async_session = original_async_session_db
     em_mod.async_session = original_async_session_em
     app.dependency_overrides.clear()

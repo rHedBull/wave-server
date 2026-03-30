@@ -93,6 +93,9 @@ class Execution(Base):
     pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_before: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_after: Mapped[str | None] = mapped_column(String, nullable=True)
+    paused_until: Mapped[datetime | None] = mapped_column(
+        TZDateTime(), nullable=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(
         TZDateTime(), nullable=True
     )

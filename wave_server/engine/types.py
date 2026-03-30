@@ -114,6 +114,7 @@ class RunnerResult:
     stdout: str
     stderr: str
     timed_out: bool = False
+    rate_limited: bool = False
 
 
 # ── Execution State (for resume) ───────────────────────────────────

@@ -249,3 +249,36 @@ Content-Type: application/json
 ```
 
 `action` must be `"retry"` or `"skip"`. Returns the updated command.
+
+## Promote
+
+### Promote execution
+
+```
+POST /api/v1/executions/{execution_id}/promote
+Content-Type: application/json
+
+{
+  "promotion_target": "main",
+  "merge_method": "squash"
+}
+```
+
+Both fields are optional. Defaults: `promotion_target="main"`, `merge_method="squash"`.
+
+Uses the review-bot GitHub App to:
+1. Approve the execution's PR (created by coding-bot into `dev`)
+2. Merge it into `dev`
+3. Create a promotion PR from `dev` → `main`
+
+Returns:
+```json
+{
+  "success": true,
+  "merged_pr_url": "https://github.com/owner/repo/pull/25",
+  "promotion_pr_url": "https://github.com/owner/repo/pull/26",
+  "error": null
+}
+```
+
+Requires the review-bot GitHub App to be configured. See [GitHub App Integration](github-apps.md) for setup details.

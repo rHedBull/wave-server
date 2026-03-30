@@ -509,7 +509,7 @@ class TestPiRunnerSpawn:
 
         assert result.exit_code == 1
         assert result.timed_out is False
-        assert "pi CLI not found" in result.stderr
+        assert "FileNotFoundError" in result.stderr
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_code(self):
@@ -891,8 +891,8 @@ class TestDetectPiOutputFailure:
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "retries exhausted" in result
-        assert "rate_limit_error" in result
+        assert "retries exhausted" in result.error
+        assert "rate_limit_error" in result.error
 
     def test_detects_rate_limit_in_agent_end(self):
         """agent_end with error stopReason and rate limit errorMessage, no output."""
@@ -910,7 +910,7 @@ class TestDetectPiOutputFailure:
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "error" in result.lower()
+        assert "error" in result.error.lower()
 
     def test_detects_error_stop_reason_in_message_end(self):
         """message_end with stopReason=error and no useful content."""
@@ -936,7 +936,7 @@ class TestDetectPiOutputFailure:
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "overloaded" in result
+        assert "overloaded" in result.error
 
     def test_no_failure_when_error_but_had_output(self):
         """If agent produced real output before error, don't flag as failure.
@@ -1017,7 +1017,7 @@ class TestDetectPiOutputFailure:
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "retries exhausted" in result
+        assert "retries exhausted" in result.error
 
     def test_auto_retry_success_not_flagged(self):
         """auto_retry_end with success=true should not be flagged."""
@@ -1051,7 +1051,7 @@ class TestDetectPiOutputFailure:
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "overloaded" in result.lower()
+        assert "overloaded" in result.error.lower()
 
     def test_real_rate_limited_output(self):
         """Test with actual captured output from a rate-limited pi task."""
@@ -1110,8 +1110,8 @@ class TestDetectPiOutputFailure:
         ]
         result = _detect_pi_output_failure("\n".join(lines))
         assert result is not None
-        assert "retries exhausted" in result
-        assert "rate_limit" in result
+        assert "retries exhausted" in result.error
+        assert "rate_limit" in result.error
 
 
 # ── PiRunner.spawn() — failure detection integration ──────────

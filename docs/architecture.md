@@ -137,10 +137,12 @@ Extensible: implement `AgentRunner` protocol for other runtimes.
 
 - **`engine/types.py`** — all dataclasses: Plan, Wave, Feature, Task, TaskResult, FeatureResult, WaveResult, RunnerConfig, RunnerResult, ExecutionState, etc.
 - **`engine/state.py`** — execution state tracking for resume (mark tasks done/failed/skipped, serialize to JSON)
-- **`engine/execution_manager.py`** — bridges REST API to engine; launches/cancels background `asyncio.Task`s, emits events to DB
+- **`engine/execution_manager.py`** — bridges REST API to engine; launches/cancels background `asyncio.Task`s, emits events to DB. Uses coding-bot GitHub App token for push + PR creation.
 - **`engine/feature_executor.py`** — runs a single feature's task DAG (used by wave executor)
 - **`engine/enforcement.py`** — generates file access rules for agent sandboxing
-- **`engine/git_worktree.py`** — git worktree create/merge/cleanup for parallel feature isolation (implemented, not yet integrated into wave executor)
+- **`engine/git_worktree.py`** — git worktree create/merge/cleanup for parallel feature isolation
+- **`engine/github_app.py`** — GitHub App authentication: JWT signing, installation token generation with caching
+- **`engine/github_pr.py`** — GitHub PR operations via REST API: approve, merge, create promotion PRs
 
 ## Storage
 
@@ -194,7 +196,9 @@ wave_server/
     |-- state.py         Execution state for resume
     |-- execution_manager.py  Background task launcher, event emitter
     |-- enforcement.py   File access rule generation
-    +-- git_worktree.py  Git worktree operations
+    |-- git_worktree.py  Git worktree operations
+    |-- github_app.py   GitHub App auth (JWT → installation token)
+    +-- github_pr.py    GitHub PR operations (approve, merge, promote)
 ```
 
 ## Testing

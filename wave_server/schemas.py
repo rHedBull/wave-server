@@ -104,6 +104,9 @@ class ExecutionCreate(BaseModel):
     source_sha: str | None = None
     model: str | None = None
     agent_models: dict[str, str] | None = None
+    initiated_by: str | None = None  # e.g. "product-agent (CEO directive: O2 KR2)"
+    reason: str | None = None  # why this execution was triggered
+    callback_url: str | None = None  # URL to POST completion payload to
 
 
 class RerunRequest(BaseModel):
@@ -129,6 +132,7 @@ class ExecutionResponse(BaseModel):
     pr_url: str | None = None
     git_sha_before: str | None = None
     git_sha_after: str | None = None
+    paused_until: datetime | None = None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime
@@ -170,3 +174,51 @@ class CommandResponse(BaseModel):
     resolved_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+# --- Promote ---
+
+
+class PromoteRequest(BaseModel):
+    promotion_target: str | None = None  # target branch for promotion PR (default: "main")
+    merge_method: str = "squash"  # squash | merge | rebase
+
+
+class PromoteResponse(BaseModel):
+    success: bool
+    merged_pr_url: str | None = None
+    promotion_pr_url: str | None = None
+    error: str | None = None
+
+
+# --- Quick Fix ---
+
+class QuickFixRequest(BaseModel):
+    prompt: str
+    branch: str
+    pr_title: str
+    files: list[str] = []
+    pr_body: str = ""
+    source_branch: str | None = None
+    auto_promote: bool = False
+    model: str | None = None
+    timeout_ms: int | None = None
+
+class QuickFixResponse(BaseModel):
+    success: bool
+    branch: str
+    pr_url: str | None = None
+    pr_number: int | None = None
+    promoted: bool = False
+    promotion_pr_url: str | None = None
+    execution_time_ms: int = 0
+    worker_output: str = ""
+    error: str | None = None
+
+
+# --- Standalone Promote ---
+
+class StandalonePromoteRequest(BaseModel):
+    pr_url: str
+    promotion_target: str | None = None
+    merge_method: str = "squash"

@@ -494,7 +494,7 @@ class TestMergeFeatureBranches:
 
 class TestCleanupAll:
     @pytest.mark.asyncio
-    async def test_cleans_worktree_dirs_preserves_branches_by_default(self, tmp_path):
+    async def test_cleans_feature_worktrees(self, tmp_path):
         repo = _init_repo(str(tmp_path / "repo"))
         wt1 = await create_feature_worktree(repo, 1, "auth")
         wt2 = await create_feature_worktree(repo, 1, "billing")
@@ -505,25 +505,10 @@ class TestCleanupAll:
         # Worktree dirs should be gone
         assert not os.path.isdir(wt1.dir)
         assert not os.path.isdir(wt2.dir)
-        # Branches should be PRESERVED (no merged_branches passed)
-        assert await branch_exists(repo, wt1.branch)
-        assert await branch_exists(repo, wt2.branch)
-
-    @pytest.mark.asyncio
-    async def test_deletes_only_merged_branches(self, tmp_path):
-        repo = _init_repo(str(tmp_path / "repo"))
-        wt1 = await create_feature_worktree(repo, 1, "auth")
-        wt2 = await create_feature_worktree(repo, 1, "billing")
-        assert wt1 and wt2
-
-        # Only auth was merged
-        await cleanup_all(repo, [wt1, wt2], merged_branches={wt1.branch})
-
-        assert not os.path.isdir(wt1.dir)
-        assert not os.path.isdir(wt2.dir)
-        # Merged branch deleted, unmerged preserved
-        assert not await branch_exists(repo, wt1.branch)
-        assert await branch_exists(repo, wt2.branch)
+        # Branches should be gone
+        branches = _git("branch", repo)
+        assert "wave-1/auth" not in branches
+        assert "wave-1/billing" not in branches
 
     @pytest.mark.asyncio
     async def test_cleans_sub_worktrees_too(self, tmp_path):

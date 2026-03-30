@@ -292,6 +292,7 @@ async def execute_feature(
                                     task.title,
                                     task.agent,
                                     runner,
+                                    on_log=on_log,
                                 )
                                 if merge_result.had_changes and merge_result.success:
                                     await _call(

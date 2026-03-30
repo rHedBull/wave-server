@@ -147,12 +147,18 @@ async def add_repository(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    # Validate path exists and is a directory
-    repo_path = Path(body.path).expanduser().resolve()
-    if not repo_path.is_dir():
-        raise HTTPException(400, f"Path does not exist or is not a directory: {repo_path}")
+    # Accept remote URLs (https://..., git@...) or local paths
+    from wave_server.engine.repo_cache import is_repo_url
+    if is_repo_url(body.path):
+        repo_path_str = body.path
+    else:
+        # Validate local path exists and is a directory
+        repo_path = Path(body.path).expanduser().resolve()
+        if not repo_path.is_dir():
+            raise HTTPException(400, f"Path does not exist or is not a directory: {repo_path}")
+        repo_path_str = str(repo_path)
     repo = ProjectRepository(
-        project_id=project_id, path=str(repo_path), label=body.label
+        project_id=project_id, path=repo_path_str, label=body.label
     )
     db.add(repo)
     await db.commit()

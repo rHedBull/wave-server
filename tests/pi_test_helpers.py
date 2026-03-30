@@ -91,12 +91,15 @@ class RateLimitPiMockRunner:
 
             # Apply the same detection logic PiRunner.spawn() uses
             detected = _detect_pi_output_failure(stdout)
+            rate_limited = False
             if detected:
                 exit_code = 1
-                stderr = detected
+                stderr = detected.error
+                rate_limited = detected.rate_limited
 
             return RunnerResult(
                 exit_code=exit_code, stdout=stdout, stderr=stderr,
+                rate_limited=rate_limited,
             )
 
         # Normal success
