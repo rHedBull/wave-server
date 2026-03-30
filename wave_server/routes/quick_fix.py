@@ -27,7 +27,6 @@ from wave_server.engine.git_worktree import (
     remove_execution_worktree,
     build_signing_env,
 )
-from wave_server.engine.github_app import create_app_auth
 from wave_server.engine.github_pr import promote_pr as github_promote_pr
 from wave_server.engine.github_pr import create_pr as api_create_pr
 from wave_server.engine.repo_cache import ensure_repo, is_repo_url
@@ -123,18 +122,8 @@ async def quick_fix(
         from pathlib import Path
 
         if is_repo_url(repo.path):
-            # Remote repo — clone/fetch via repo cache with coding-bot token
-            coding_app_auth = create_app_auth(
-                app_id=settings.github_coding_app_id,
-                private_key=settings.github_coding_app_key,
-                installation_id=settings.github_coding_app_install_id,
-            )
-            clone_token = None
-            if coding_app_auth:
-                try:
-                    clone_token = await coding_app_auth.get_token()
-                except Exception:
-                    pass
+            # Remote repo — clone/fetch via repo cache
+            clone_token = settings.github_token
             repo_cwd = await ensure_repo(repo.path, token=clone_token)
             if not repo_cwd:
                 raise HTTPException(
@@ -200,15 +189,6 @@ async def quick_fix(
             project_env["GITHUB_TOKEN"] = github_token
             project_env["GH_TOKEN"] = github_token
 
-        coding_app_auth = create_app_auth(
-            app_id=project_env.get("GITHUB_CODING_APP_ID")
-            or settings.github_coding_app_id,
-            private_key=project_env.get("GITHUB_CODING_APP_KEY")
-            or settings.github_coding_app_key,
-            installation_id=project_env.get("GITHUB_CODING_APP_INSTALL_ID")
-            or settings.github_coding_app_install_id,
-        )
-
         if settings.git_committer_name and "GIT_COMMITTER_NAME" not in project_env:
             project_env["GIT_COMMITTER_NAME"] = settings.git_committer_name
             project_env["GIT_AUTHOR_NAME"] = settings.git_committer_name
@@ -269,15 +249,8 @@ async def quick_fix(
             # a. Commit
             await commit_task_output(repo_cwd, "quickfix", body.pr_title, "worker")
 
-            # b. Resolve coding-bot token
+            # b. Push branch
             push_token = github_token
-            if coding_app_auth:
-                try:
-                    push_token = await coding_app_auth.get_token()
-                except Exception:
-                    pass
-
-            # c. Push branch
             if push_token:
                 push_ok, push_err = await push_branch(
                     repo_cwd, body.branch, github_token=push_token
@@ -313,29 +286,20 @@ async def quick_fix(
                                     pr_number = int(pr_num_match.group(1))
 
                                 # e. Auto-promote
-                                if body.auto_promote and pr_url:
-                                    review_app_auth = create_app_auth(
-                                        app_id=settings.github_review_app_id,
-                                        private_key=settings.github_review_app_key,
-                                        installation_id=settings.github_review_app_install_id,
-                                    )
-                                    if review_app_auth:
-                                        try:
-                                            review_token = (
-                                                await review_app_auth.get_token()
+                                if body.auto_promote and pr_url and push_token:
+                                    try:
+                                        promote_result = await github_promote_pr(
+                                            push_token,
+                                            pr_url,
+                                            promotion_target="main",
+                                        )
+                                        if promote_result.success:
+                                            promoted = True
+                                            promotion_pr_url = (
+                                                promote_result.promotion_pr_url
                                             )
-                                            promote_result = await github_promote_pr(
-                                                review_token,
-                                                pr_url,
-                                                promotion_target="main",
-                                            )
-                                            if promote_result.success:
-                                                promoted = True
-                                                promotion_pr_url = (
-                                                    promote_result.promotion_pr_url
-                                                )
-                                        except Exception:
-                                            pass
+                                    except Exception:
+                                        pass
 
         return QuickFixResponse(
             success=True,

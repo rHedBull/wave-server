@@ -25,7 +25,6 @@ from wave_server.config import settings as server_settings
 from wave_server.db import async_session
 from wave_server.engine.dag import validate_plan
 from wave_server.engine.execution_logger import ExecutionLogger
-from wave_server.engine.github_app import create_app_auth
 from wave_server.engine.git_worktree import (
     build_signing_env,
     create_execution_worktree,
@@ -411,18 +410,7 @@ async def _run_execution(
             # Resolve repo path: remote URL → cached local clone, local path → use directly
             if is_repo_url(repo.path):
                 # Remote repo — ensure local clone exists and is up to date
-                # Resolve token early: coding-bot app > server github_token
                 clone_token = server_settings.github_token
-                _clone_app = create_app_auth(
-                    app_id=server_settings.github_coding_app_id,
-                    private_key=server_settings.github_coding_app_key,
-                    installation_id=server_settings.github_coding_app_install_id,
-                )
-                if _clone_app:
-                    try:
-                        clone_token = await _clone_app.get_token()
-                    except Exception:
-                        pass
 
                 repos_dir = str((settings.data_dir / "repos").resolve())
                 repo_cwd, clone_err = await ensure_repo(
@@ -560,16 +548,6 @@ async def _run_execution(
             if github_token and "GITHUB_TOKEN" not in project_env:
                 project_env["GITHUB_TOKEN"] = github_token
                 project_env["GH_TOKEN"] = github_token
-
-            # Resolve coding-bot app auth for push+PR (project env > server config)
-            coding_app_auth = create_app_auth(
-                app_id=project_env.get("GITHUB_CODING_APP_ID")
-                or server_settings.github_coding_app_id,
-                private_key=project_env.get("GITHUB_CODING_APP_KEY")
-                or server_settings.github_coding_app_key,
-                installation_id=project_env.get("GITHUB_CODING_APP_INSTALL_ID")
-                or server_settings.github_coding_app_install_id,
-            )
 
             # Resolve PR target branch (project env > server config > source branch)
             pr_target_branch = (
@@ -869,15 +847,9 @@ async def _run_execution(
                 and execution.work_branch
                 and execution.source_branch
             ):
-                # Resolve token: coding-bot app > static github_token
                 push_token = github_token
-                if coding_app_auth:
-                    try:
-                        push_token = await coding_app_auth.get_token()
-                    except Exception as e:
-                        pr_error = f"Coding-bot token generation failed: {e}"
 
-                if not pr_error:
+                if push_token:
                     # Try to push the work branch
                     remote_url = await get_remote_url(repo_cwd)
                     if remote_url:

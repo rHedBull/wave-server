@@ -32,7 +32,6 @@ from wave_server.schemas import (
     StandalonePromoteRequest,
 )
 from wave_server import storage
-from wave_server.engine.github_app import create_app_auth
 from wave_server.engine.github_pr import promote_pr
 
 router = APIRouter()
@@ -213,34 +212,15 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
             pass
 
     github_token: str | None = None
-    is_app_token = False
     if is_repo_url(repo.path):
-        # Resolve auth: project token > server token > coding app token
         github_token = project_env.get("GITHUB_TOKEN") or settings.github_token
-        if not github_token:
-            coding_app = create_app_auth(
-                app_id=project_env.get("GITHUB_CODING_APP_ID")
-                or settings.github_coding_app_id,
-                private_key=project_env.get("GITHUB_CODING_APP_KEY")
-                or settings.github_coding_app_key,
-                installation_id=(
-                    project_env.get("GITHUB_CODING_APP_INSTALL_ID")
-                    or settings.github_coding_app_install_id
-                ),
-            )
-            if coding_app:
-                try:
-                    github_token = await coding_app.get_token()
-                    is_app_token = True
-                except Exception:
-                    pass
 
-        # Verify the token/App can actually access this repository
+        # Verify the token can actually access this repository
         if github_token:
             accessible, detail = await _check_repo_accessible(
                 repo.path,
                 github_token,
-                is_app_token=is_app_token,
+                is_app_token=False,
             )
             if accessible is False:
                 raise HTTPException(422, detail)
@@ -713,32 +693,19 @@ async def promote_execution(
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Resolve review-bot app auth (project env > server config)
-    review_app_auth = create_app_auth(
-        app_id=project_env.get("GITHUB_REVIEW_APP_ID") or settings.github_review_app_id,
-        private_key=project_env.get("GITHUB_REVIEW_APP_KEY")
-        or settings.github_review_app_key,
-        installation_id=project_env.get("GITHUB_REVIEW_APP_INSTALL_ID")
-        or settings.github_review_app_install_id,
-    )
-
-    if not review_app_auth:
+    # Resolve GitHub token for promote operations
+    github_token = project_env.get("GITHUB_TOKEN") or settings.github_token
+    if not github_token:
         raise HTTPException(
             400,
-            "Review-bot GitHub App not configured. "
-            "Set WAVE_GITHUB_REVIEW_APP_ID, WAVE_GITHUB_REVIEW_APP_KEY, "
-            "and WAVE_GITHUB_REVIEW_APP_INSTALL_ID in server config or project env vars.",
+            "GitHub token not configured. "
+            "Set WAVE_GITHUB_TOKEN in server config or GITHUB_TOKEN in project env vars.",
         )
-
-    try:
-        review_token = await review_app_auth.get_token()
-    except Exception as e:
-        raise HTTPException(500, f"Failed to generate review-bot token: {e}")
 
     promotion_target = body.promotion_target or "main"
 
     result = await promote_pr(
-        review_token=review_token,
+        review_token=github_token,
         pr_url=execution.pr_url,
         promotion_target=promotion_target,
         merge_method=body.merge_method,
@@ -762,26 +729,17 @@ async def standalone_promote(
     Standalone version — no execution ID needed. For quick-fixes
     and external PRs that aren't tied to a Wave execution.
     """
-    review_app_auth = create_app_auth(
-        app_id=settings.github_review_app_id,
-        private_key=settings.github_review_app_key,
-        installation_id=settings.github_review_app_install_id,
-    )
-
-    if not review_app_auth:
+    github_token = settings.github_token
+    if not github_token:
         raise HTTPException(
             400,
-            "Review-bot GitHub App not configured. "
-            "Set WAVE_GITHUB_REVIEW_APP_ID, WAVE_GITHUB_REVIEW_APP_KEY, "
-            "and WAVE_GITHUB_REVIEW_APP_INSTALL_ID in server config or project env vars.",
+            "GitHub token not configured. Set WAVE_GITHUB_TOKEN in server config.",
         )
-
-    review_token = await review_app_auth.get_token()
 
     promotion_target = body.promotion_target or "main"
 
     result = await promote_pr(
-        review_token=review_token,
+        review_token=github_token,
         pr_url=body.pr_url,
         promotion_target=promotion_target,
         merge_method=body.merge_method,
