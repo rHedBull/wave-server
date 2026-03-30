@@ -296,18 +296,14 @@ async def test_preflight_repo_access_check_inconclusive(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_preflight_repo_access_skipped_no_token(client: AsyncClient):
-    """Access check is skipped when no GitHub token or App is configured."""
+async def test_preflight_repo_access_rejected_no_token(client: AsyncClient):
+    """Preflight rejects remote repos when no GitHub token is configured."""
     _, sid = await _setup_url_repo(client)  # no env vars → no token
 
-    with patch(
-        "wave_server.routes.executions._check_repo_accessible",
-        new_callable=AsyncMock,
-    ) as mock_check:
-        r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
+    r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
 
-    assert r.status_code == 201
-    mock_check.assert_not_called()
+    assert r.status_code == 422
+    assert "token" in r.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
