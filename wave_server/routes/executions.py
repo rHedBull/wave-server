@@ -32,7 +32,6 @@ from wave_server.schemas import (
     StandalonePromoteRequest,
 )
 from wave_server import storage
-from wave_server.engine.github_app import create_app_auth
 from wave_server.engine.github_pr import promote_pr
 
 router = APIRouter()
@@ -80,17 +79,14 @@ async def _github_api_get(
 async def _check_repo_accessible(
     repo_url: str,
     github_token: str,
-    *,
-    is_app_token: bool = False,
 ) -> tuple[bool | None, str]:
-    """Check if the token can access the repository.
+    """Check if the bot account can access the repository and has push permission.
 
-    For GitHub App installation tokens (``is_app_token=True``), queries
-    ``GET /installation/repositories`` for a precise diagnostic.
-    For personal access tokens, falls back to ``GET /repos/{owner}/{repo}``.
+    Queries ``GET /repos/{owner}/{repo}`` and inspects the ``permissions``
+    field to verify the bot account has write access.
 
     Returns ``(accessible, detail)`` where *detail* is a human-readable
-    explanation when access is denied.
+    explanation when access is denied or insufficient.
     """
     from wave_server.engine.repo_cache import _cache_key_from_url
 
@@ -98,41 +94,29 @@ async def _check_repo_accessible(
     if not owner_repo:
         return None, ""
 
-    if is_app_token:
-        # App installation tokens can list their accessible repos
-        result = await _github_api_get(
-            "/installation/repositories?per_page=100",
-            github_token,
-        )
-        if result is None:
-            return None, ""
-        status, body = result
-        if status == 200 and body:
-            repos = [r.get("full_name") for r in body.get("repositories", [])]
-            if owner_repo in repos:
-                return True, ""
-            visible = ", ".join(repos[:10]) or "(none)"
-            if len(repos) > 10:
-                visible += f" … and {len(repos) - 10} more"
-            return False, (
-                f"The GitHub App does not have access to '{owner_repo}'. "
-                f"It can currently access: {visible}. "
-                f"Install the App on this repository via GitHub → Settings → "
-                f"Integrations → Configure."
-            )
-        # Unexpected status — fall through to generic check
-
-    # Generic check: can the token see this repo?
     result = await _github_api_get(f"/repos/{owner_repo}", github_token)
     if result is None:
         return None, ""
-    status, _ = result
+    status, body = result
     if status == 200:
+        # Check push permission
+        permissions = (body or {}).get("permissions", {})
+        if not permissions.get("push"):
+            return False, (
+                f"The bot account can see '{owner_repo}' but does not have push access. "
+                f"Add the bot account as a collaborator with write permissions."
+            )
         return True, ""
     if status == 404:
         return False, (
-            f"Cannot access repository '{owner_repo}'. Verify the URL is correct "
-            f"and the token has access to the repository."
+            f"Cannot access repository '{owner_repo}'. "
+            f"Either the URL is wrong or the bot account does not have access. "
+            f"Add the bot account as a collaborator on the repository."
+        )
+    if status == 401:
+        return False, (
+            "GitHub token is invalid or expired. "
+            "Check the WAVE_GITHUB_TOKEN configuration."
         )
     return None, ""
 
@@ -213,37 +197,23 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
             pass
 
     github_token: str | None = None
-    is_app_token = False
     if is_repo_url(repo.path):
-        # Resolve auth: project token > server token > coding app token
         github_token = project_env.get("GITHUB_TOKEN") or settings.github_token
-        if not github_token:
-            coding_app = create_app_auth(
-                app_id=project_env.get("GITHUB_CODING_APP_ID")
-                or settings.github_coding_app_id,
-                private_key=project_env.get("GITHUB_CODING_APP_KEY")
-                or settings.github_coding_app_key,
-                installation_id=(
-                    project_env.get("GITHUB_CODING_APP_INSTALL_ID")
-                    or settings.github_coding_app_install_id
-                ),
-            )
-            if coding_app:
-                try:
-                    github_token = await coding_app.get_token()
-                    is_app_token = True
-                except Exception:
-                    pass
 
-        # Verify the token/App can actually access this repository
-        if github_token:
-            accessible, detail = await _check_repo_accessible(
-                repo.path,
-                github_token,
-                is_app_token=is_app_token,
+        if not github_token:
+            raise HTTPException(
+                422,
+                "No GitHub token configured. Set WAVE_GITHUB_TOKEN in server config "
+                "or GITHUB_TOKEN in project env vars to access remote repositories.",
             )
-            if accessible is False:
-                raise HTTPException(422, detail)
+
+        # Verify the bot account can access and push to this repository
+        accessible, detail = await _check_repo_accessible(
+            repo.path,
+            github_token,
+        )
+        if accessible is False:
+            raise HTTPException(422, detail)
 
     # Agent CLI must be installed (pi or claude depending on runtime)
     runtime = settings.runtime
@@ -713,32 +683,19 @@ async def promote_execution(
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Resolve review-bot app auth (project env > server config)
-    review_app_auth = create_app_auth(
-        app_id=project_env.get("GITHUB_REVIEW_APP_ID") or settings.github_review_app_id,
-        private_key=project_env.get("GITHUB_REVIEW_APP_KEY")
-        or settings.github_review_app_key,
-        installation_id=project_env.get("GITHUB_REVIEW_APP_INSTALL_ID")
-        or settings.github_review_app_install_id,
-    )
-
-    if not review_app_auth:
+    # Resolve GitHub token for promote operations
+    github_token = project_env.get("GITHUB_TOKEN") or settings.github_token
+    if not github_token:
         raise HTTPException(
             400,
-            "Review-bot GitHub App not configured. "
-            "Set WAVE_GITHUB_REVIEW_APP_ID, WAVE_GITHUB_REVIEW_APP_KEY, "
-            "and WAVE_GITHUB_REVIEW_APP_INSTALL_ID in server config or project env vars.",
+            "GitHub token not configured. "
+            "Set WAVE_GITHUB_TOKEN in server config or GITHUB_TOKEN in project env vars.",
         )
-
-    try:
-        review_token = await review_app_auth.get_token()
-    except Exception as e:
-        raise HTTPException(500, f"Failed to generate review-bot token: {e}")
 
     promotion_target = body.promotion_target or "main"
 
     result = await promote_pr(
-        review_token=review_token,
+        review_token=github_token,
         pr_url=execution.pr_url,
         promotion_target=promotion_target,
         merge_method=body.merge_method,
@@ -762,26 +719,17 @@ async def standalone_promote(
     Standalone version — no execution ID needed. For quick-fixes
     and external PRs that aren't tied to a Wave execution.
     """
-    review_app_auth = create_app_auth(
-        app_id=settings.github_review_app_id,
-        private_key=settings.github_review_app_key,
-        installation_id=settings.github_review_app_install_id,
-    )
-
-    if not review_app_auth:
+    github_token = settings.github_token
+    if not github_token:
         raise HTTPException(
             400,
-            "Review-bot GitHub App not configured. "
-            "Set WAVE_GITHUB_REVIEW_APP_ID, WAVE_GITHUB_REVIEW_APP_KEY, "
-            "and WAVE_GITHUB_REVIEW_APP_INSTALL_ID in server config or project env vars.",
+            "GitHub token not configured. Set WAVE_GITHUB_TOKEN in server config.",
         )
-
-    review_token = await review_app_auth.get_token()
 
     promotion_target = body.promotion_target or "main"
 
     result = await promote_pr(
-        review_token=review_token,
+        review_token=github_token,
         pr_url=body.pr_url,
         promotion_target=promotion_target,
         merge_method=body.merge_method,

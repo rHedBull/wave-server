@@ -35,16 +35,6 @@ class Settings(BaseSettings):
     )
     rate_limit_max_retries: int = 3  # per-task retry attempts after pause cycles
 
-    # GitHub App: coding bot — pushes branches, creates PRs
-    github_coding_app_id: str | None = None
-    github_coding_app_key: str | None = None  # PEM content or path to .pem file
-    github_coding_app_install_id: str | None = None
-
-    # GitHub App: review bot — approves/merges PRs, creates promotion PRs
-    github_review_app_id: str | None = None
-    github_review_app_key: str | None = None  # PEM content or path to .pem file
-    github_review_app_install_id: str | None = None
-
     # Default target branch for worker PRs (e.g. "dev" instead of source branch)
     github_pr_target: str | None = None
 
