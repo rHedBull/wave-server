@@ -266,10 +266,10 @@ Content-Type: application/json
 
 Both fields are optional. Defaults: `promotion_target="main"`, `merge_method="squash"`.
 
-Uses the review-bot GitHub App to:
-1. Approve the execution's PR (created by coding-bot into `dev`)
-2. Merge it into `dev`
-3. Create a promotion PR from `dev` → `main`
+Uses the bot account PAT to:
+1. Approve the execution's PR
+2. Merge it into the target branch
+3. Create a promotion PR to the promotion target (default: `main`)
 
 Returns:
 ```json
@@ -281,4 +281,4 @@ Returns:
 }
 ```
 
-Requires the review-bot GitHub App to be configured. See [GitHub App Integration](github-apps.md) for setup details.
+Requires `WAVE_GITHUB_TOKEN` to be configured. See [GitHub Authentication](github-auth.md) for setup details.
