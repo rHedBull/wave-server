@@ -9,9 +9,9 @@ RUN npm ci
 COPY dashboard/ .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# API URL is injected at runtime via env vars; build with a placeholder
-ENV NEXT_PUBLIC_API_URL=__NEXT_PUBLIC_API_URL__
-ENV NEXT_PUBLIC_API_BASE=__NEXT_PUBLIC_API_BASE__
+# Both processes run in the same container, so the dashboard
+# uses the source-code defaults (http://localhost:9718/api/v1).
+# Do NOT set NEXT_PUBLIC_API_* here — Next.js bakes them at build time.
 RUN npm run build
 
 ### ── Stage 2: Combined backend + dashboard ───────────────────────────
