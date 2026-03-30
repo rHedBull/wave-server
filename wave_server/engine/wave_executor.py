@@ -13,7 +13,7 @@ import inspect
 import logging
 import re
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -59,10 +59,10 @@ class WaveExecutorOptions:
     env: dict[str, str] | None = None
     max_concurrency: int = 4
     skip_task_ids: set[str] = field(default_factory=set)
-    repo_root: str | None = None    # separate from cwd for worktree creation
-    use_worktrees: bool = True       # can disable for non-git or testing
-    model: str | None = None                      # default model for all tasks
-    agent_models: dict[str, str] | None = None    # per-agent-type overrides
+    repo_root: str | None = None  # separate from cwd for worktree creation
+    use_worktrees: bool = True  # can disable for non-git or testing
+    model: str | None = None  # default model for all tasks
+    agent_models: dict[str, str] | None = None  # per-agent-type overrides
 
     # Callbacks (async or sync — async callbacks are awaited)
     on_progress: Callable[[ProgressUpdate], Any] | None = None
@@ -93,9 +93,7 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
     # ceiling — not per-phase or per-feature.
     shared_sem = asyncio.Semaphore(opts.max_concurrency)
 
-    async def run_task_with_runner(
-        task: Task, phase: str
-    ) -> TaskResult:
+    async def run_task_with_runner(task: Task, phase: str) -> TaskResult:
         """Run a single task using the configured runner."""
         # Skip already-completed tasks
         if task.id in opts.skip_task_ids:
@@ -117,15 +115,19 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         start = time.monotonic()
 
         # Build prompt for the agent
-        prompt = _build_task_prompt(task, opts.spec_content, opts.data_schemas, opts.project_structure, opts.environment, opts.project_context)
+        prompt = _build_task_prompt(
+            task,
+            opts.spec_content,
+            opts.data_schemas,
+            opts.project_structure,
+            opts.environment,
+            opts.project_context,
+        )
 
         from wave_server.engine.types import RunnerConfig
 
         # Resolve model: agent-specific override > execution default > server default
-        task_model = (
-            (opts.agent_models or {}).get(task.agent)
-            or opts.model
-        ) or None
+        task_model = ((opts.agent_models or {}).get(task.agent) or opts.model) or None
 
         config = RunnerConfig(
             task_id=task.id,
@@ -145,7 +147,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             title=task.title,
             agent=task.agent,
             exit_code=runner_result.exit_code,
-            output=output if not runner_result.timed_out else f"Task timed out\n{output}",
+            output=output
+            if not runner_result.timed_out
+            else f"Task timed out\n{output}",
             stderr=runner_result.stderr,
             duration_ms=elapsed_ms,
             stdout=runner_result.stdout,
@@ -211,7 +215,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             opts.on_progress,
             ProgressUpdate(
                 phase="foundation",
-                current_tasks=[{"id": t.id, "status": "pending"} for t in wave.foundation],
+                current_tasks=[
+                    {"id": t.id, "status": "pending"} for t in wave.foundation
+                ],
             ),
         )
         await _call(opts.on_log, "### Foundation")
@@ -225,7 +231,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         foundation_results.extend(f_results)
 
         if any(r.exit_code != 0 for r in f_results):
-            await _call(opts.on_log, "Foundation FAILED — skipping features and integration")
+            await _call(
+                opts.on_log, "Foundation FAILED — skipping features and integration"
+            )
             return WaveResult(
                 wave=wave.name,
                 foundation_results=foundation_results,
@@ -247,7 +255,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
         await _call(opts.on_log, "### Features")
 
         # Single feature with name "default" → no git isolation needed
-        is_single_default = len(wave.features) == 1 and wave.features[0].name == "default"
+        is_single_default = (
+            len(wave.features) == 1 and wave.features[0].name == "default"
+        )
 
         # Determine if we should use git worktree isolation
         repo_root = opts.repo_root or opts.cwd
@@ -261,7 +271,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
 
         if use_git:
             for feature in wave.features:
-                wt = await create_feature_worktree(repo_root, opts.wave_num, feature.name)
+                wt = await create_feature_worktree(
+                    repo_root, opts.wave_num, feature.name
+                )
                 feature_worktree_map[feature.name] = wt
                 if wt:
                     all_feature_worktrees.append(wt)
@@ -286,8 +298,12 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 auto_commit=opts.repo_root is not None,
                 model=opts.model,
                 agent_models=opts.agent_models,
-                on_task_start=lambda task: _call(opts.on_task_start, f"feature:{feature.name}", task),
-                on_task_end=lambda task, tr: _call(opts.on_task_end, f"feature:{feature.name}", task, tr),
+                on_task_start=lambda task: _call(
+                    opts.on_task_start, f"feature:{feature.name}", task
+                ),
+                on_task_end=lambda task, tr: _call(
+                    opts.on_task_end, f"feature:{feature.name}", task, tr
+                ),
                 on_log=opts.on_log,
                 semaphore=shared_sem,
             )
@@ -339,11 +355,15 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                 if merge_result.exit_code == 0:
                     # Verify the branches are actually merged and clean up
                     merged, still_unmerged = await verify_branches_merged(
-                        repo_root, unmerged_branches,
+                        repo_root,
+                        unmerged_branches,
                     )
                     if still_unmerged:
                         branch_list = ", ".join(f"`{b}`" for b in still_unmerged)
-                        await _call(opts.on_log, f"❌ Merge task completed but branches still unmerged: {branch_list}")
+                        await _call(
+                            opts.on_log,
+                            f"❌ Merge task completed but branches still unmerged: {branch_list}",
+                        )
                         return WaveResult(
                             wave=wave.name,
                             foundation_results=foundation_results,
@@ -352,9 +372,14 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                             passed=False,
                         )
                     if merged:
-                        await _call(opts.on_log, f"✅ All conflicting branches merged successfully")
+                        await _call(
+                            opts.on_log,
+                            "✅ All conflicting branches merged successfully",
+                        )
                 else:
-                    await _call(opts.on_log, "❌ Merge task failed — skipping integration")
+                    await _call(
+                        opts.on_log, "❌ Merge task failed — skipping integration"
+                    )
                     return WaveResult(
                         wave=wave.name,
                         foundation_results=foundation_results,
@@ -364,7 +389,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
                     )
 
         if any(not r.passed for r in f_results):
-            await _call(opts.on_log, "One or more features failed — skipping integration")
+            await _call(
+                opts.on_log, "One or more features failed — skipping integration"
+            )
             # Emergency cleanup if worktrees remain
             if use_git and all_feature_worktrees:
                 await cleanup_all(repo_root, all_feature_worktrees)
@@ -383,7 +410,9 @@ async def execute_wave(opts: WaveExecutorOptions) -> WaveResult:
             opts.on_progress,
             ProgressUpdate(
                 phase="integration",
-                current_tasks=[{"id": t.id, "status": "pending"} for t in wave.integration],
+                current_tasks=[
+                    {"id": t.id, "status": "pending"} for t in wave.integration
+                ],
             ),
         )
         await _call(opts.on_log, "### Integration")
@@ -463,14 +492,23 @@ def _load_agent_role(agent_name: str) -> str:
     return _FALLBACK_ROLES.get(agent_name, "You are implementing code.")
 
 
-def _build_task_prompt(task: Task, spec_content: str, data_schemas: str, project_structure: str = "", environment: str = "", project_context: str = "") -> str:
+def _build_task_prompt(
+    task: Task,
+    spec_content: str,
+    data_schemas: str,
+    project_structure: str = "",
+    environment: str = "",
+    project_context: str = "",
+) -> str:
     """Build the prompt sent to the agent subprocess."""
     schemas_block = (
         f"\n## Data Schemas (authoritative — use these exact names)\n{data_schemas}\n"
         if data_schemas
         else ""
     )
-    structure_block = f"\n## Project Structure\n{project_structure}\n" if project_structure else ""
+    structure_block = (
+        f"\n## Project Structure\n{project_structure}\n" if project_structure else ""
+    )
     env_block = f"\n## Environment\n{environment}\n" if environment else ""
     legacy_ctx = f"\n{project_context}\n" if project_context else ""
     context_block = f"{structure_block}{env_block}{legacy_ctx}"
@@ -506,7 +544,7 @@ def _build_merge_description(unmerged_branches: list[str], target_branch: str) -
         f"These branches had conflicts during automatic merging and need manual resolution.\n\n"
         f"**Branches to merge (in order):**\n{branch_list}\n\n"
         f"For each branch:\n"
-        f"1. `git merge --no-ff <branch> -m \"pi: merge feature <branch>\"`\n"
+        f'1. `git merge --no-ff <branch> -m "pi: merge feature <branch>"`\n'
         f"2. If conflicts occur, resolve them by keeping ALL code from both sides\n"
         f"3. `git add` resolved files, then `git commit --no-edit`\n"
         f"4. Verify no conflicts remain: `git diff --name-only --diff-filter=U`\n\n"

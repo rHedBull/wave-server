@@ -57,7 +57,11 @@ async def test_standalone_promote_success(client):
 
     with (
         patch("wave_server.routes.executions.create_app_auth", return_value=mock_auth),
-        patch("wave_server.routes.executions.promote_pr", new_callable=AsyncMock, return_value=promote_result),
+        patch(
+            "wave_server.routes.executions.promote_pr",
+            new_callable=AsyncMock,
+            return_value=promote_result,
+        ),
     ):
         resp = await client.post(
             "/api/v1/promote",
@@ -92,7 +96,11 @@ async def test_standalone_promote_failure(client):
 
     with (
         patch("wave_server.routes.executions.create_app_auth", return_value=mock_auth),
-        patch("wave_server.routes.executions.promote_pr", new_callable=AsyncMock, return_value=promote_result),
+        patch(
+            "wave_server.routes.executions.promote_pr",
+            new_callable=AsyncMock,
+            return_value=promote_result,
+        ),
     ):
         resp = await client.post(
             "/api/v1/promote",

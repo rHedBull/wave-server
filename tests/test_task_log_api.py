@@ -73,7 +73,9 @@ Tests failed.
 
 
 @pytest.mark.asyncio
-async def test_list_task_logs_empty(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_list_task_logs_empty(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     r = await client.get(f"/api/v1/executions/{eid}/task-logs")
@@ -82,7 +84,9 @@ async def test_list_task_logs_empty(client: AsyncClient, db_session: AsyncSessio
 
 
 @pytest.mark.asyncio
-async def test_list_task_logs(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_list_task_logs(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     storage.write_task_log(eid, "t1", SAMPLE_LOG, "worker")
@@ -102,7 +106,9 @@ async def test_list_task_logs_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_get_task_log(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_get_task_log(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     storage.write_task_log(eid, "t1", SAMPLE_LOG, "worker")
@@ -114,7 +120,9 @@ async def test_get_task_log(client: AsyncClient, db_session: AsyncSession, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_get_task_log_not_found(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_get_task_log_not_found(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     r = await client.get(f"/api/v1/executions/{eid}/task-logs/no-such-task")
@@ -128,12 +136,16 @@ async def test_get_task_log_execution_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_search_task_logs(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_search_task_logs(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     storage.write_task_log(eid, "t1", SAMPLE_LOG, "worker")
     storage.write_task_log(eid, "t2", SAMPLE_LOG_2, "test-writer")
-    r = await client.get(f"/api/v1/executions/{eid}/task-logs/search", params={"q": "JWT"})
+    r = await client.get(
+        f"/api/v1/executions/{eid}/task-logs/search", params={"q": "JWT"}
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["total_matches"] >= 1
@@ -142,11 +154,15 @@ async def test_search_task_logs(client: AsyncClient, db_session: AsyncSession, t
 
 
 @pytest.mark.asyncio
-async def test_search_task_logs_no_results(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_search_task_logs_no_results(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     storage.write_task_log(eid, "t1", SAMPLE_LOG, "worker")
-    r = await client.get(f"/api/v1/executions/{eid}/task-logs/search", params={"q": "nonexistent_xyz"})
+    r = await client.get(
+        f"/api/v1/executions/{eid}/task-logs/search", params={"q": "nonexistent_xyz"}
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["total_matches"] == 0
@@ -154,7 +170,9 @@ async def test_search_task_logs_no_results(client: AsyncClient, db_session: Asyn
 
 
 @pytest.mark.asyncio
-async def test_search_task_logs_agent_filter(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_search_task_logs_agent_filter(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     storage.write_task_log(eid, "t1", SAMPLE_LOG, "worker")
@@ -171,7 +189,9 @@ async def test_search_task_logs_agent_filter(client: AsyncClient, db_session: As
 
 
 @pytest.mark.asyncio
-async def test_search_task_logs_missing_query(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_search_task_logs_missing_query(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)
     r = await client.get(f"/api/v1/executions/{eid}/task-logs/search")
@@ -188,7 +208,9 @@ async def test_search_task_logs_execution_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_tasks_endpoint_has_task_log_flag(client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch):
+async def test_tasks_endpoint_has_task_log_flag(
+    client: AsyncClient, db_session: AsyncSession, tmp_path, monkeypatch
+):
     """The /tasks endpoint should include has_task_log in its response."""
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, eid = await _create_execution(db_session)

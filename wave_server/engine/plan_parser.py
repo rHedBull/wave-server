@@ -326,9 +326,7 @@ def _parse_v2(markdown: str) -> Plan:
             description_lines = []
             i += 1
             # Parse metadata
-            i, description_lines = _parse_task_metadata(
-                lines, i, current_task
-            )
+            i, description_lines = _parse_task_metadata(lines, i, current_task)
             continue
 
         i += 1
@@ -341,6 +339,3 @@ def _parse_v2(markdown: str) -> Plan:
             plan.goal = m.group(1).strip()
 
     return plan
-
-
-

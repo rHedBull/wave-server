@@ -157,8 +157,7 @@ class RateLimitPauser:
         )
 
         log.warning(
-            "Rate limit hit — pausing execution for %d min (resume ≈ %s). "
-            "Error: %s",
+            "Rate limit hit — pausing execution for %d min (resume ≈ %s). Error: %s",
             self._wait_seconds // 60,
             self._resume_at.strftime("%H:%M UTC"),
             (error_msg or "unknown")[:200],

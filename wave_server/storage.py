@@ -110,7 +110,9 @@ def task_log_path(execution_id: str, task_id: str, agent: str = "") -> Path:
     return _storage() / "task-logs" / execution_id / f"{task_id}{suffix}.md"
 
 
-def write_task_log(execution_id: str, task_id: str, content: str, agent: str = "") -> Path:
+def write_task_log(
+    execution_id: str, task_id: str, content: str, agent: str = ""
+) -> Path:
     path = _ensure(task_log_path(execution_id, task_id, agent))
     path.write_text(content, encoding="utf-8")
     return path
@@ -227,17 +229,23 @@ def search_task_logs(
                     idx = snippet.lower().index(query_lower)
                     start = max(0, idx - max_context_chars // 2)
                     end = min(len(snippet), start + max_context_chars)
-                    snippet = ("…" if start > 0 else "") + snippet[start:end] + ("…" if end < len(snippet) else "")
+                    snippet = (
+                        ("…" if start > 0 else "")
+                        + snippet[start:end]
+                        + ("…" if end < len(snippet) else "")
+                    )
                 matches.append({"line_num": i, "snippet": snippet})
 
         if matches:
-            results.append({
-                "task_id": tid,
-                "agent": file_agent,
-                "filename": p.name,
-                "matches": matches,
-                "match_count": len(matches),
-            })
+            results.append(
+                {
+                    "task_id": tid,
+                    "agent": file_agent,
+                    "filename": p.name,
+                    "matches": matches,
+                    "match_count": len(matches),
+                }
+            )
 
     return results
 

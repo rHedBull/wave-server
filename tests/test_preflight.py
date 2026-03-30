@@ -3,6 +3,7 @@
 Each test verifies that the correct HTTP 422 is returned (and no execution
 record is created) when a specific precondition is not met.
 """
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -61,6 +62,7 @@ No schemas.
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 async def _make_project_and_sequence(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "preflight-proj"})
     pid = proj.json()["id"]
@@ -92,6 +94,7 @@ async def _execution_count(client: AsyncClient, sid: str) -> int:
 # ---------------------------------------------------------------------------
 # Preflight failure tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_preflight_no_plan(client: AsyncClient):
@@ -201,6 +204,7 @@ async def test_preflight_all_pass(client: AsyncClient, ready_sequence):
 # GitHub repo access preflight tests
 # ---------------------------------------------------------------------------
 
+
 async def _setup_url_repo(
     client: AsyncClient,
     env: dict[str, str] | None = None,
@@ -222,8 +226,11 @@ async def test_preflight_repo_not_accessible_pat(client: AsyncClient):
     with patch(
         "wave_server.routes.executions._check_repo_accessible",
         new_callable=AsyncMock,
-        return_value=(False, "Cannot access repository 'test-owner/test-repo'. "
-                      "Verify the URL is correct and the token has access to the repository."),
+        return_value=(
+            False,
+            "Cannot access repository 'test-owner/test-repo'. "
+            "Verify the URL is correct and the token has access to the repository.",
+        ),
     ):
         r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
 
@@ -240,10 +247,13 @@ async def test_preflight_repo_not_accessible_app(client: AsyncClient):
     with patch(
         "wave_server.routes.executions._check_repo_accessible",
         new_callable=AsyncMock,
-        return_value=(False, "The GitHub App does not have access to 'test-owner/test-repo'. "
-                      "It can currently access: owner/other-repo. "
-                      "Install the App on this repository via GitHub → Settings → "
-                      "Integrations → Configure."),
+        return_value=(
+            False,
+            "The GitHub App does not have access to 'test-owner/test-repo'. "
+            "It can currently access: owner/other-repo. "
+            "Install the App on this repository via GitHub → Settings → "
+            "Integrations → Configure.",
+        ),
     ):
         r = await client.post(f"/api/v1/sequences/{sid}/executions", json={})
 
@@ -301,7 +311,9 @@ async def test_preflight_repo_access_skipped_no_token(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_preflight_repo_access_skipped_local_repo(client: AsyncClient, ready_sequence):
+async def test_preflight_repo_access_skipped_local_repo(
+    client: AsyncClient, ready_sequence
+):
     """Access check is skipped for local (non-URL) repos."""
     sid = ready_sequence["sequence_id"]
 
@@ -319,11 +331,13 @@ async def test_preflight_repo_access_skipped_local_repo(client: AsyncClient, rea
 # PR target branch preflight tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_preflight_pr_target_branch_missing(client: AsyncClient):
     """422 when GITHUB_PR_TARGET branch does not exist on the remote."""
     _, sid = await _setup_url_repo(
-        client, {"GITHUB_PR_TARGET": "dev", "GITHUB_TOKEN": "fake-token"},
+        client,
+        {"GITHUB_PR_TARGET": "dev", "GITHUB_TOKEN": "fake-token"},
     )
 
     with (
@@ -350,7 +364,8 @@ async def test_preflight_pr_target_branch_missing(client: AsyncClient):
 async def test_preflight_pr_target_branch_exists(client: AsyncClient):
     """201 when GITHUB_PR_TARGET branch exists on the remote."""
     _, sid = await _setup_url_repo(
-        client, {"GITHUB_PR_TARGET": "dev", "GITHUB_TOKEN": "fake-token"},
+        client,
+        {"GITHUB_PR_TARGET": "dev", "GITHUB_TOKEN": "fake-token"},
     )
 
     with (
@@ -375,7 +390,8 @@ async def test_preflight_pr_target_branch_exists(client: AsyncClient):
 async def test_preflight_pr_target_check_inconclusive(client: AsyncClient):
     """201 when the branch check cannot be performed (e.g. network error)."""
     _, sid = await _setup_url_repo(
-        client, {"GITHUB_PR_TARGET": "dev", "GITHUB_TOKEN": "fake-token"},
+        client,
+        {"GITHUB_PR_TARGET": "dev", "GITHUB_TOKEN": "fake-token"},
     )
 
     with (
@@ -412,7 +428,9 @@ async def test_preflight_no_pr_target_skips_check(client: AsyncClient, ready_seq
 
 
 @pytest.mark.asyncio
-async def test_preflight_pr_target_local_repo_skips_check(client: AsyncClient, tmp_path):
+async def test_preflight_pr_target_local_repo_skips_check(
+    client: AsyncClient, tmp_path
+):
     """Branch check is skipped for local (non-URL) repos even if PR target is set."""
     pid, sid = await _make_project_and_sequence(client)
     await _upload_plan(client, sid)

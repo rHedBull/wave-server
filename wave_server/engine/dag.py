@@ -30,7 +30,10 @@ def validate_dag(tasks: list[Task]) -> tuple[bool, str | None]:
     for task in tasks:
         for dep in task.depends:
             if dep not in task_ids:
-                return False, f'Task "{task.id}" depends on "{dep}" which does not exist'
+                return (
+                    False,
+                    f'Task "{task.id}" depends on "{dep}" which does not exist',
+                )
         if task.id in task.depends:
             return False, f'Task "{task.id}" depends on itself'
 
@@ -119,9 +122,7 @@ def validate_plan(plan: Plan) -> tuple[bool, list[str]]:
         validate_section(wave.foundation, "foundation", foundation_ids)
         for feature in wave.features:
             feature_ids = section_tasks[f"feature:{feature.name}"]
-            validate_section(
-                feature.tasks, f'feature "{feature.name}"', feature_ids
-            )
+            validate_section(feature.tasks, f'feature "{feature.name}"', feature_ids)
         validate_section(wave.integration, "integration", integration_ids)
 
         # Feature file overlap detection
@@ -226,8 +227,7 @@ async def map_concurrent(
             results[idx] = await fn(items[idx], idx)
 
     workers = [
-        asyncio.create_task(worker())
-        for _ in range(min(concurrency, len(items)))
+        asyncio.create_task(worker()) for _ in range(min(concurrency, len(items)))
     ]
     await asyncio.gather(*workers)
     return results  # type: ignore[return-value]
@@ -355,7 +355,9 @@ async def execute_dag(
     return [result_map[t.id] for t in tasks]
 
 
-def compute_dirty_closure(plan: Plan, rerun_ids: set[str], cascade: bool = True) -> set[str]:
+def compute_dirty_closure(
+    plan: Plan, rerun_ids: set[str], cascade: bool = True
+) -> set[str]:
     """Compute the full set of task IDs that must be re-executed.
 
     Args:

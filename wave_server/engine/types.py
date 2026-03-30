@@ -126,7 +126,9 @@ class ExecutionState:
     started_at: str
     updated_at: str
     current_wave: int = 0
-    task_states: dict[str, str] = field(default_factory=dict)  # "completed" | "failed" | "skipped"
+    task_states: dict[str, str] = field(
+        default_factory=dict
+    )  # "completed" | "failed" | "skipped"
 
 
 # ── Git Worktree ───────────────────────────────────────────────────

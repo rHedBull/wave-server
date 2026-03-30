@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -53,9 +53,7 @@ class TestIsRateLimitError:
         assert is_rate_limit_error(r) is True
 
     def test_pattern_rate_limit_in_stdout(self):
-        r = RunnerResult(
-            exit_code=1, stdout="rate_limit_error: exceeded", stderr=""
-        )
+        r = RunnerResult(exit_code=1, stdout="rate_limit_error: exceeded", stderr="")
         assert is_rate_limit_error(r) is True
 
     def test_pattern_overloaded(self):
@@ -93,73 +91,91 @@ class TestIsRateLimitMessage:
 
 class TestDetectPiOutputFailureRateLimit:
     def test_auto_retry_rate_limit(self):
-        stdout = json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
-        })
+        stdout = json.dumps(
+            {
+                "type": "auto_retry_end",
+                "success": False,
+                "finalError": '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}',
+            }
+        )
         result = _detect_pi_output_failure(stdout)
         assert result is not None
         assert result.rate_limited is True
         assert "rate_limit" in result.error
 
     def test_auto_retry_overloaded(self):
-        stdout = json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "finalError": '529 overloaded_error',
-        })
+        stdout = json.dumps(
+            {
+                "type": "auto_retry_end",
+                "success": False,
+                "finalError": "529 overloaded_error",
+            }
+        )
         result = _detect_pi_output_failure(stdout)
         assert result is not None
         assert result.rate_limited is True
 
     def test_auto_retry_non_rate_limit(self):
         """Real failures (not rate limits) should have rate_limited=False."""
-        stdout = json.dumps({
-            "type": "auto_retry_end",
-            "success": False,
-            "finalError": "Some internal server error",
-        })
+        stdout = json.dumps(
+            {
+                "type": "auto_retry_end",
+                "success": False,
+                "finalError": "Some internal server error",
+            }
+        )
         result = _detect_pi_output_failure(stdout)
         assert result is not None
         assert result.rate_limited is False
 
     def test_agent_end_rate_limit(self):
-        stdout = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [],
-                "errorMessage": "429 rate_limit_error",
-                "stopReason": "error",
-            }],
-        })
+        stdout = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "errorMessage": "429 rate_limit_error",
+                        "stopReason": "error",
+                    }
+                ],
+            }
+        )
         result = _detect_pi_output_failure(stdout)
         assert result is not None
         assert result.rate_limited is True
 
     def test_agent_end_real_failure(self):
-        stdout = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [],
-                "errorMessage": "tool execution failed",
-                "stopReason": "error",
-            }],
-        })
+        stdout = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "errorMessage": "tool execution failed",
+                        "stopReason": "error",
+                    }
+                ],
+            }
+        )
         result = _detect_pi_output_failure(stdout)
         assert result is not None
         assert result.rate_limited is False
 
     def test_success_returns_none(self):
-        stdout = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [{"type": "text", "text": "Done!"}],
-            }],
-        })
+        stdout = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Done!"}],
+                    }
+                ],
+            }
+        )
         assert _detect_pi_output_failure(stdout) is None
 
 
@@ -331,9 +347,11 @@ class TestRateLimitAwareRunner:
     @pytest.mark.asyncio
     async def test_success_passes_through(self):
         """Non-rate-limited results pass through without retry."""
-        inner = _MockRunner([
-            RunnerResult(exit_code=0, stdout="ok", stderr=""),
-        ])
+        inner = _MockRunner(
+            [
+                RunnerResult(exit_code=0, stdout="ok", stderr=""),
+            ]
+        )
         pauser = RateLimitPauser(wait_seconds=1)
         runner = RateLimitAwareRunner(inner, pauser, max_retries=3)
 
@@ -347,9 +365,11 @@ class TestRateLimitAwareRunner:
     @pytest.mark.asyncio
     async def test_real_failure_passes_through(self):
         """Non-rate-limit failures pass through without retry."""
-        inner = _MockRunner([
-            RunnerResult(exit_code=1, stdout="", stderr="TypeError: blah"),
-        ])
+        inner = _MockRunner(
+            [
+                RunnerResult(exit_code=1, stdout="", stderr="TypeError: blah"),
+            ]
+        )
         pauser = RateLimitPauser(wait_seconds=1)
         runner = RateLimitAwareRunner(inner, pauser, max_retries=3)
 
@@ -363,10 +383,17 @@ class TestRateLimitAwareRunner:
     @pytest.mark.asyncio
     async def test_rate_limit_then_success(self):
         """Rate limit → pause → retry → success."""
-        inner = _MockRunner([
-            RunnerResult(exit_code=1, stdout="", stderr="429 rate_limit_error", rate_limited=True),
-            RunnerResult(exit_code=0, stdout="done", stderr=""),
-        ])
+        inner = _MockRunner(
+            [
+                RunnerResult(
+                    exit_code=1,
+                    stdout="",
+                    stderr="429 rate_limit_error",
+                    rate_limited=True,
+                ),
+                RunnerResult(exit_code=0, stdout="done", stderr=""),
+            ]
+        )
         pauser = RateLimitPauser(wait_seconds=1)  # 1s for fast test
         runner = RateLimitAwareRunner(inner, pauser, max_retries=3)
 
@@ -411,7 +438,6 @@ class TestRateLimitAwareRunner:
     async def test_concurrent_tasks_share_pause(self):
         """Two tasks hit rate limit concurrently — second one waits on the
         existing pause instead of starting its own."""
-        pause_entered = asyncio.Event()
         spawn_log: list[str] = []
 
         class _TrackingRunner:
@@ -444,10 +470,14 @@ class TestRateLimitAwareRunner:
     @pytest.mark.asyncio
     async def test_pattern_detection_without_flag(self):
         """Rate limit detected via stderr patterns even without flag."""
-        inner = _MockRunner([
-            RunnerResult(exit_code=1, stdout="", stderr="overloaded_error: service busy"),
-            RunnerResult(exit_code=0, stdout="done", stderr=""),
-        ])
+        inner = _MockRunner(
+            [
+                RunnerResult(
+                    exit_code=1, stdout="", stderr="overloaded_error: service busy"
+                ),
+                RunnerResult(exit_code=0, stdout="done", stderr=""),
+            ]
+        )
         pauser = RateLimitPauser(wait_seconds=1)
         runner = RateLimitAwareRunner(inner, pauser, max_retries=3)
 
@@ -473,22 +503,30 @@ class TestPiRunnerRateLimitedFlag:
 
         from wave_server.engine.runner import PiRunner
 
-        rate_limited_output = "\n".join([
-            json.dumps({
-                "type": "agent_end",
-                "messages": [{
-                    "role": "assistant",
-                    "content": [],
-                    "errorMessage": "429 rate_limit_error",
-                    "stopReason": "error",
-                }],
-            }),
-            json.dumps({
-                "type": "auto_retry_end",
-                "success": False,
-                "finalError": "429 rate_limit_error",
-            }),
-        ])
+        rate_limited_output = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "agent_end",
+                        "messages": [
+                            {
+                                "role": "assistant",
+                                "content": [],
+                                "errorMessage": "429 rate_limit_error",
+                                "stopReason": "error",
+                            }
+                        ],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "auto_retry_end",
+                        "success": False,
+                        "finalError": "429 rate_limit_error",
+                    }
+                ),
+            ]
+        )
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(
@@ -498,8 +536,10 @@ class TestPiRunnerRateLimitedFlag:
 
         runner = PiRunner()
 
-        with patch("shutil.which", return_value="/usr/bin/pi"), \
-             patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with (
+            patch("shutil.which", return_value="/usr/bin/pi"),
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        ):
             config = RunnerConfig(task_id="t1", prompt="test", cwd="/tmp")
             result = await runner.spawn(config)
 
@@ -512,26 +552,30 @@ class TestPiRunnerRateLimitedFlag:
 
         from wave_server.engine.runner import PiRunner
 
-        failure_output = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [],
-                "errorMessage": "tool bash failed: command not found",
-                "stopReason": "error",
-            }],
-        })
+        failure_output = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "errorMessage": "tool bash failed: command not found",
+                        "stopReason": "error",
+                    }
+                ],
+            }
+        )
 
         mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(
-            return_value=(failure_output.encode(), b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(failure_output.encode(), b""))
         mock_proc.returncode = 0
 
         runner = PiRunner()
 
-        with patch("shutil.which", return_value="/usr/bin/pi"), \
-             patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with (
+            patch("shutil.which", return_value="/usr/bin/pi"),
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        ):
             config = RunnerConfig(task_id="t1", prompt="test", cwd="/tmp")
             result = await runner.spawn(config)
 
@@ -544,24 +588,28 @@ class TestPiRunnerRateLimitedFlag:
 
         from wave_server.engine.runner import PiRunner
 
-        success_output = json.dumps({
-            "type": "agent_end",
-            "messages": [{
-                "role": "assistant",
-                "content": [{"type": "text", "text": "All done!"}],
-            }],
-        })
+        success_output = json.dumps(
+            {
+                "type": "agent_end",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "All done!"}],
+                    }
+                ],
+            }
+        )
 
         mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(
-            return_value=(success_output.encode(), b"")
-        )
+        mock_proc.communicate = AsyncMock(return_value=(success_output.encode(), b""))
         mock_proc.returncode = 0
 
         runner = PiRunner()
 
-        with patch("shutil.which", return_value="/usr/bin/pi"), \
-             patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with (
+            patch("shutil.which", return_value="/usr/bin/pi"),
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        ):
             config = RunnerConfig(task_id="t1", prompt="test", cwd="/tmp")
             result = await runner.spawn(config)
 

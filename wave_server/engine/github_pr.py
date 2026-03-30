@@ -17,6 +17,7 @@ GITHUB_API = "https://api.github.com"
 @dataclass
 class PRInfo:
     """Minimal PR metadata."""
+
     number: int
     url: str
     head_branch: str
@@ -28,6 +29,7 @@ class PRInfo:
 @dataclass
 class PromoteResult:
     """Result of a promote operation."""
+
     success: bool
     merged_pr: PRInfo | None = None
     promotion_pr_url: str | None = None
@@ -74,7 +76,11 @@ async def get_pr(token: str, owner: str, repo: str, pr_number: int) -> PRInfo | 
 
 
 async def approve_pr(
-    token: str, owner: str, repo: str, pr_number: int, body: str = "Approved by review-bot"
+    token: str,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    body: str = "Approved by review-bot",
 ) -> tuple[bool, str]:
     """Submit an approving review on a PR. Returns (success, error)."""
     async with httpx.AsyncClient() as client:
@@ -105,7 +111,10 @@ async def merge_pr(
         if resp.status_code == 200:
             return True, ""
         data = resp.json()
-        return False, f"Merge failed ({resp.status_code}): {data.get('message', resp.text)}"
+        return (
+            False,
+            f"Merge failed ({resp.status_code}): {data.get('message', resp.text)}",
+        )
 
 
 async def create_pr(
@@ -128,7 +137,10 @@ async def create_pr(
             data = resp.json()
             return data["html_url"], ""
         data = resp.json()
-        return None, f"PR creation failed ({resp.status_code}): {data.get('message', resp.text)}"
+        return (
+            None,
+            f"PR creation failed ({resp.status_code}): {data.get('message', resp.text)}",
+        )
 
 
 async def promote_pr(
@@ -163,7 +175,9 @@ async def promote_pr(
         # Already merged — skip to promotion
         pass
     elif pr.state == "closed":
-        return PromoteResult(success=False, error=f"PR #{pr_number} is closed (not merged)")
+        return PromoteResult(
+            success=False, error=f"PR #{pr_number} is closed (not merged)"
+        )
     else:
         # 2. Approve
         ok, err = await approve_pr(review_token, owner, repo, pr_number)
@@ -185,7 +199,9 @@ async def promote_pr(
     )
 
     promo_url, promo_err = await create_pr(
-        review_token, owner, repo,
+        review_token,
+        owner,
+        repo,
         head=pr.base_branch,
         base=promotion_target,
         title=promo_title,

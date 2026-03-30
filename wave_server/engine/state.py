@@ -50,6 +50,7 @@ def completed_task_ids(state: ExecutionState) -> set[str]:
 
 def state_to_json(state: ExecutionState) -> str:
     from dataclasses import asdict
+
     return json.dumps(asdict(state), indent=2)
 
 

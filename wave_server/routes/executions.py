@@ -12,7 +12,14 @@ from wave_server.config import settings
 from wave_server.db import get_db
 from wave_server.engine.dag import validate_plan
 from wave_server.engine.plan_parser import parse_plan
-from wave_server.models import Command, Event, Execution, Project, ProjectRepository, Sequence
+from wave_server.models import (
+    Command,
+    Event,
+    Execution,
+    Project,
+    ProjectRepository,
+    Sequence,
+)
 from wave_server.schemas import (
     CommandResolve,
     CommandResponse,
@@ -41,7 +48,9 @@ def _check_network() -> bool:
 
 
 async def _github_api_get(
-    path: str, github_token: str, timeout: int = 10,
+    path: str,
+    github_token: str,
+    timeout: int = 10,
 ) -> tuple[int, dict | None] | None:
     """Perform an authenticated GET against the GitHub API.
 
@@ -69,7 +78,10 @@ async def _github_api_get(
 
 
 async def _check_repo_accessible(
-    repo_url: str, github_token: str, *, is_app_token: bool = False,
+    repo_url: str,
+    github_token: str,
+    *,
+    is_app_token: bool = False,
 ) -> tuple[bool | None, str]:
     """Check if the token can access the repository.
 
@@ -89,7 +101,8 @@ async def _check_repo_accessible(
     if is_app_token:
         # App installation tokens can list their accessible repos
         result = await _github_api_get(
-            "/installation/repositories?per_page=100", github_token,
+            "/installation/repositories?per_page=100",
+            github_token,
         )
         if result is None:
             return None, ""
@@ -108,7 +121,7 @@ async def _check_repo_accessible(
                 f"Integrations → Configure."
             )
         # Unexpected status — fall through to generic check
-    
+
     # Generic check: can the token see this repo?
     result = await _github_api_get(f"/repos/{owner_repo}", github_token)
     if result is None:
@@ -125,7 +138,9 @@ async def _check_repo_accessible(
 
 
 async def _check_remote_branch_exists(
-    repo_url: str, branch: str, github_token: str,
+    repo_url: str,
+    branch: str,
+    github_token: str,
 ) -> bool | None:
     """Check if *branch* exists on a GitHub remote repository.
 
@@ -140,7 +155,8 @@ async def _check_remote_branch_exists(
         return None
 
     result = await _github_api_get(
-        f"/repos/{owner_repo}/branches/{branch}", github_token,
+        f"/repos/{owner_repo}/branches/{branch}",
+        github_token,
     )
     if result is None:
         return None
@@ -180,6 +196,7 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
             "Go to Project Settings and add a repository path first.",
         )
     from wave_server.engine.repo_cache import is_repo_url
+
     if not is_repo_url(repo.path) and not Path(repo.path).is_dir():
         raise HTTPException(
             422,
@@ -202,8 +219,10 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
         github_token = project_env.get("GITHUB_TOKEN") or settings.github_token
         if not github_token:
             coding_app = create_app_auth(
-                app_id=project_env.get("GITHUB_CODING_APP_ID") or settings.github_coding_app_id,
-                private_key=project_env.get("GITHUB_CODING_APP_KEY") or settings.github_coding_app_key,
+                app_id=project_env.get("GITHUB_CODING_APP_ID")
+                or settings.github_coding_app_id,
+                private_key=project_env.get("GITHUB_CODING_APP_KEY")
+                or settings.github_coding_app_key,
                 installation_id=(
                     project_env.get("GITHUB_CODING_APP_INSTALL_ID")
                     or settings.github_coding_app_install_id
@@ -219,7 +238,9 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
         # Verify the token/App can actually access this repository
         if github_token:
             accessible, detail = await _check_repo_accessible(
-                repo.path, github_token, is_app_token=is_app_token,
+                repo.path,
+                github_token,
+                is_app_token=is_app_token,
             )
             if accessible is False:
                 raise HTTPException(422, detail)
@@ -242,6 +263,7 @@ async def _preflight(sequence_id: str, project_id: str, db: AsyncSession) -> Non
 
     # Network must be reachable (runs in threadpool to avoid blocking the event loop)
     import asyncio
+
     reachable = await asyncio.get_event_loop().run_in_executor(None, _check_network)
     if not reachable:
         raise HTTPException(
@@ -298,6 +320,7 @@ async def create_execution(
     await db.refresh(execution)
     # Launch background execution
     from wave_server.engine.execution_manager import launch_execution
+
     await launch_execution(execution.id, sequence_id)
     return execution
 
@@ -306,9 +329,7 @@ async def create_execution(
     "/sequences/{sequence_id}/executions",
     response_model=list[ExecutionResponse],
 )
-async def list_executions(
-    sequence_id: str, db: AsyncSession = Depends(get_db)
-):
+async def list_executions(sequence_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Execution)
         .where(Execution.sequence_id == sequence_id)
@@ -326,15 +347,14 @@ async def get_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/executions/{execution_id}/cancel", status_code=204)
-async def cancel_execution(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def cancel_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
     if exc.status not in ("pending", "running"):
         raise HTTPException(400, "Execution is not running")
     from wave_server.engine.execution_manager import cancel_execution as cancel_bg
+
     cancel_bg(execution_id)
     exc.status = "cancelled"
     exc.finished_at = datetime.now(timezone.utc)
@@ -346,9 +366,7 @@ async def cancel_execution(
     response_model=ExecutionResponse,
     status_code=201,
 )
-async def continue_execution(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def continue_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
@@ -371,6 +389,7 @@ async def continue_execution(
     await db.commit()
     await db.refresh(new_exec)
     from wave_server.engine.execution_manager import launch_execution
+
     await launch_execution(new_exec.id, exc.sequence_id, continue_from=execution_id)
     return new_exec
 
@@ -387,7 +406,9 @@ async def rerun_execution(
     if not exc:
         raise HTTPException(404, "Execution not found")
     if exc.status not in ("completed", "failed", "cancelled"):
-        raise HTTPException(400, "Execution must be completed, failed, or cancelled to rerun tasks")
+        raise HTTPException(
+            400, "Execution must be completed, failed, or cancelled to rerun tasks"
+        )
     seq = await db.get(Sequence, exc.sequence_id)
     if not seq:
         raise HTTPException(404, "Sequence not found")
@@ -396,6 +417,7 @@ async def rerun_execution(
     # Validate that requested task IDs exist in the plan
     plan_content = storage.read_plan(exc.sequence_id)
     from wave_server.engine.plan_parser import parse_plan as _parse
+
     plan = _parse(plan_content)
     all_plan_ids: set[str] = set()
     for wave in plan.waves:
@@ -408,9 +430,7 @@ async def rerun_execution(
             all_plan_ids.add(t.id)
     unknown = set(body.task_ids) - all_plan_ids
     if unknown:
-        raise HTTPException(
-            422, f"Unknown task IDs: {', '.join(sorted(unknown))}"
-        )
+        raise HTTPException(422, f"Unknown task IDs: {', '.join(sorted(unknown))}")
 
     new_exec = Execution(
         sequence_id=exc.sequence_id,
@@ -426,6 +446,7 @@ async def rerun_execution(
     await db.commit()
     await db.refresh(new_exec)
     from wave_server.engine.execution_manager import launch_execution
+
     await launch_execution(
         new_exec.id,
         exc.sequence_id,
@@ -439,9 +460,7 @@ async def rerun_execution(
 # --- Events ---
 
 
-@router.get(
-    "/executions/{execution_id}/events", response_model=list[EventResponse]
-)
+@router.get("/executions/{execution_id}/events", response_model=list[EventResponse])
 async def list_events(
     execution_id: str,
     since: datetime | None = Query(None),
@@ -468,7 +487,11 @@ async def list_tasks(execution_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Event)
         .where(Event.execution_id == execution_id)
-        .where(Event.event_type.in_(["task_started", "task_completed", "task_failed", "task_skipped"]))
+        .where(
+            Event.event_type.in_(
+                ["task_started", "task_completed", "task_failed", "task_skipped"]
+            )
+        )
         .order_by(Event.created_at)
     )
     events = result.scalars().all()
@@ -540,9 +563,7 @@ async def get_task_transcript(
 
 
 @router.get("/executions/{execution_id}/task-logs")
-async def list_task_logs(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def list_task_logs(execution_id: str, db: AsyncSession = Depends(get_db)):
     exc = await db.get(Execution, execution_id)
     if not exc:
         raise HTTPException(404, "Execution not found")
@@ -553,7 +574,9 @@ async def list_task_logs(
 async def search_task_logs(
     execution_id: str,
     q: str = Query(..., min_length=1, description="Search query"),
-    agent: str = Query("", description="Filter by agent: worker, test-writer, wave-verifier"),
+    agent: str = Query(
+        "", description="Filter by agent: worker, test-writer, wave-verifier"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     exc = await db.get(Execution, execution_id)
@@ -607,9 +630,7 @@ async def get_log(execution_id: str, db: AsyncSession = Depends(get_db)):
     "/executions/{execution_id}/blockers",
     response_model=list[CommandResponse],
 )
-async def list_blockers(
-    execution_id: str, db: AsyncSession = Depends(get_db)
-):
+async def list_blockers(execution_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Command)
         .where(Command.execution_id == execution_id)
@@ -668,7 +689,9 @@ async def promote_execution(
         raise HTTPException(404, "Execution not found")
 
     if execution.status != "completed":
-        raise HTTPException(400, f"Execution is '{execution.status}', must be 'completed' to promote")
+        raise HTTPException(
+            400, f"Execution is '{execution.status}', must be 'completed' to promote"
+        )
 
     if not execution.pr_url:
         raise HTTPException(400, "Execution has no PR to promote (was it pushed?)")
@@ -679,10 +702,12 @@ async def promote_execution(
         raise HTTPException(404, "Sequence not found")
 
     from wave_server.models import Project
+
     project = await db.get(Project, sequence.project_id)
     project_env: dict[str, str] = {}
     if project and project.env_vars:
         import json
+
         try:
             project_env = json.loads(project.env_vars)
         except (json.JSONDecodeError, TypeError):
@@ -691,8 +716,10 @@ async def promote_execution(
     # Resolve review-bot app auth (project env > server config)
     review_app_auth = create_app_auth(
         app_id=project_env.get("GITHUB_REVIEW_APP_ID") or settings.github_review_app_id,
-        private_key=project_env.get("GITHUB_REVIEW_APP_KEY") or settings.github_review_app_key,
-        installation_id=project_env.get("GITHUB_REVIEW_APP_INSTALL_ID") or settings.github_review_app_install_id,
+        private_key=project_env.get("GITHUB_REVIEW_APP_KEY")
+        or settings.github_review_app_key,
+        installation_id=project_env.get("GITHUB_REVIEW_APP_INSTALL_ID")
+        or settings.github_review_app_install_id,
     )
 
     if not review_app_auth:

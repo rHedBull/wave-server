@@ -4,7 +4,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = {"env_prefix": "WAVE_", "env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_prefix": "WAVE_",
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+    }
 
     data_dir: Path = Path("./data")
     database_url: str | None = None
@@ -19,13 +23,17 @@ class Settings(BaseSettings):
     git_committer_name: str | None = None
     git_committer_email: str | None = None
     git_signing_key: str | None = None
-    agents_dir: Path | None = None  # directory with agent .md files; falls back to hardcoded prompts
+    agents_dir: Path | None = (
+        None  # directory with agent .md files; falls back to hardcoded prompts
+    )
     cors_origins: list[str] = ["http://localhost:9719", "http://localhost:9720"]
 
     # Rate-limit pause-and-resume
     rate_limit_enabled: bool = True
-    rate_limit_pause_seconds: int = 18000  # 5 hours (matches Claude Code subscription window)
-    rate_limit_max_retries: int = 3        # per-task retry attempts after pause cycles
+    rate_limit_pause_seconds: int = (
+        18000  # 5 hours (matches Claude Code subscription window)
+    )
+    rate_limit_max_retries: int = 3  # per-task retry attempts after pause cycles
 
     # GitHub App: coding bot — pushes branches, creates PRs
     github_coding_app_id: str | None = None

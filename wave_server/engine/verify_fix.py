@@ -83,7 +83,9 @@ async def attempt_fix_and_reverify(
     current_output = verifier_output
 
     for attempt in range(1, max_attempts + 1):
-        await _call(on_log, f"   🔧 Fix attempt {attempt}/{max_attempts} for {verifier_task.id}")
+        await _call(
+            on_log, f"   🔧 Fix attempt {attempt}/{max_attempts} for {verifier_task.id}"
+        )
 
         # ── 1. Run fix agent ──────────────────────────────────
         fix_prompt = _build_fix_prompt(current_output, verifier_task)

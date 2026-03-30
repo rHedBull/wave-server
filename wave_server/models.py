@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, text, TypeDecorator
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+    TypeDecorator,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from wave_server.db import Base
@@ -93,15 +102,9 @@ class Execution(Base):
     pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_before: Mapped[str | None] = mapped_column(String, nullable=True)
     git_sha_after: Mapped[str | None] = mapped_column(String, nullable=True)
-    paused_until: Mapped[datetime | None] = mapped_column(
-        TZDateTime(), nullable=True
-    )
-    started_at: Mapped[datetime | None] = mapped_column(
-        TZDateTime(), nullable=True
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        TZDateTime(), nullable=True
-    )
+    paused_until: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
 
 
@@ -139,9 +142,7 @@ class Command(Base):
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     picked_up: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=_now)
-    resolved_at: Mapped[datetime | None] = mapped_column(
-        TZDateTime(), nullable=True
-    )
+    resolved_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
 
 class ProjectRepository(Base):

@@ -20,7 +20,6 @@ from wave_server.engine.git_worktree import (
 )
 from wave_server.engine.types import (
     Feature,
-    FeatureWorktree,
     RunnerConfig,
     RunnerResult,
     Task,
@@ -35,7 +34,10 @@ from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave
 def _git(args: str, cwd: str) -> str:
     return subprocess.run(
         ["git"] + args.split(),
-        cwd=cwd, capture_output=True, text=True, check=True,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
@@ -121,9 +123,7 @@ class TestFeatureExecutorWithWorktree:
         feature = Feature(name="auth", tasks=[_task("t1")])
         runner = MockRunner()
 
-        result = await execute_feature(
-            feature, runner, cwd=repo, feature_worktree=wt
-        )
+        result = await execute_feature(feature, runner, cwd=repo, feature_worktree=wt)
 
         assert result.passed
         assert runner.cwds[0] == wt.dir
@@ -255,9 +255,7 @@ class TestFeatureExecutorWithWorktree:
         feature = Feature(name="auth", tasks=[_task("t1")])
         runner = MockRunner()
 
-        result = await execute_feature(
-            feature, runner, cwd=repo, feature_worktree=wt
-        )
+        result = await execute_feature(feature, runner, cwd=repo, feature_worktree=wt)
 
         assert result.branch == "wave-1/auth"
 
@@ -280,9 +278,7 @@ class TestFeatureExecutorWithWorktree:
         )
         runner = MockRunner(results={"t1": 1})
 
-        result = await execute_feature(
-            feature, runner, cwd=repo, feature_worktree=wt
-        )
+        result = await execute_feature(feature, runner, cwd=repo, feature_worktree=wt)
 
         assert not result.passed
         assert "t1" in runner.spawned

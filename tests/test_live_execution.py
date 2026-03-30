@@ -305,7 +305,12 @@ EMPLOYEES_JSON = json.dumps(
     [
         {"name": "Alice", "score": 92, "department": "engineering", "city": "Seattle"},
         {"name": "Bob", "score": 45, "department": "marketing", "city": "Portland"},
-        {"name": "Charlie", "score": 88, "department": "engineering", "city": "Seattle"},
+        {
+            "name": "Charlie",
+            "score": 88,
+            "department": "engineering",
+            "city": "Seattle",
+        },
         {"name": "Diana", "score": 73, "department": "marketing", "city": "Denver"},
         {"name": "Eve", "score": 56, "department": "sales", "city": "Portland"},
         {"name": "Frank", "score": 31, "department": "sales", "city": "Denver"},
@@ -585,18 +590,24 @@ def _init_git_repo(path: Path) -> None:
     subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=path, capture_output=True, check=True,
+        cwd=path,
+        capture_output=True,
+        check=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test"],
-        cwd=path, capture_output=True, check=True,
+        cwd=path,
+        capture_output=True,
+        check=True,
     )
     # Create initial file so we have a commit
     (path / "README.md").write_text("# Test Project\n")
     subprocess.run(["git", "add", "."], cwd=path, capture_output=True, check=True)
     subprocess.run(
         ["git", "commit", "-m", "initial"],
-        cwd=path, capture_output=True, check=True,
+        cwd=path,
+        capture_output=True,
+        check=True,
     )
 
 
@@ -807,7 +818,9 @@ class TestLiveSimple:
         print(f"  Repo: {repo_dir}")
 
         project_id, sequence_id, execution_id = await _setup_execution(
-            live_client, repo_dir, SIMPLE_PLAN,
+            live_client,
+            repo_dir,
+            SIMPLE_PLAN,
             project_name="live-simple",
             sequence_name="math-utils",
         )
@@ -835,9 +848,7 @@ class TestLiveSimple:
         print(f"  ✓ All {result['total_tasks']} tasks completed")
 
         # ── Verify events ─────────────────────────────────────
-        r = await live_client.get(
-            f"/api/v1/executions/{execution_id}/events"
-        )
+        r = await live_client.get(f"/api/v1/executions/{execution_id}/events")
         events = r.json()
         event_types = [e["event_type"] for e in events]
         assert "run_started" in event_types
@@ -854,9 +865,7 @@ class TestLiveSimple:
             assert len(r.text) > 10, f"Output for {task_id} suspiciously short"
         print("  ✓ Task outputs stored")
 
-        r = await live_client.get(
-            f"/api/v1/executions/{execution_id}/log"
-        )
+        r = await live_client.get(f"/api/v1/executions/{execution_id}/log")
         assert r.status_code == 200 and len(r.text) > 50
         print("  ✓ Execution log stored")
 
@@ -913,7 +922,9 @@ class TestLiveMultiAgent:
         print(f"  Repo: {repo_dir}")
 
         project_id, sequence_id, execution_id = await _setup_execution(
-            live_client, repo_dir, MULTI_AGENT_PLAN,
+            live_client,
+            repo_dir,
+            MULTI_AGENT_PLAN,
             project_name="live-multi-agent",
             sequence_name="string-utils",
         )
@@ -940,17 +951,13 @@ class TestLiveMultiAgent:
         print(f"  ✓ All {result['total_tasks']} tasks completed")
 
         # ── Verify events include phase transitions ───────────
-        r = await live_client.get(
-            f"/api/v1/executions/{execution_id}/events"
-        )
+        r = await live_client.get(f"/api/v1/executions/{execution_id}/events")
         events = r.json()
         event_types = [e["event_type"] for e in events]
         assert "run_started" in event_types
         assert "run_completed" in event_types
         # Should have at least task events for all 3 tasks
-        completed_tasks = [
-            e for e in events if e["event_type"] == "task_completed"
-        ]
+        completed_tasks = [e for e in events if e["event_type"] == "task_completed"]
         assert len(completed_tasks) == 3, (
             f"Expected 3 completed tasks, got {len(completed_tasks)}"
         )
@@ -971,9 +978,7 @@ class TestLiveMultiAgent:
         print("  ✓ All task outputs and transcripts stored")
 
         # ── Verify task logs ──────────────────────────────────
-        r = await live_client.get(
-            f"/api/v1/executions/{execution_id}/task-logs"
-        )
+        r = await live_client.get(f"/api/v1/executions/{execution_id}/task-logs")
         assert r.status_code == 200
         task_logs = r.json()
         assert len(task_logs) >= 3, f"Expected ≥3 task logs, got {len(task_logs)}"
@@ -1014,7 +1019,7 @@ class TestLiveMultiAgent:
         print("  ✓ All generated tests pass!")
 
         # ── Verify the verifier didn't modify files ───────────
-        git_status = subprocess.run(
+        subprocess.run(
             ["git", "diff", "--name-only", "HEAD"],
             cwd=repo_dir,
             capture_output=True,
@@ -1022,7 +1027,7 @@ class TestLiveMultiAgent:
         )
         # Files should have been created by earlier tasks (untracked),
         # but the verifier shouldn't have modified them after the test task
-        print(f"  ✓ Git status clean (verifier respected read-only)")
+        print("  ✓ Git status clean (verifier respected read-only)")
 
         _print_section("RESULT: ALL CHECKS PASSED ✓")
 
@@ -1068,7 +1073,9 @@ class TestLiveCapability:
         subprocess.run(["git", "add", "-A"], cwd=d, capture_output=True, check=True)
         subprocess.run(
             ["git", "commit", "-m", "add fixtures"],
-            cwd=d, capture_output=True, check=True,
+            cwd=d,
+            capture_output=True,
+            check=True,
         )
 
         return d
@@ -1098,14 +1105,18 @@ class TestLiveCapability:
         # Confirm the pre-planted tests DO fail (bugs are real)
         pre_result = subprocess.run(
             ["python", "-m", "pytest", "tests/test_broken_utils.py", "-v", "--tb=no"],
-            cwd=repo, capture_output=True, text=True,
+            cwd=repo,
+            capture_output=True,
+            text=True,
         )
         failed_count = pre_result.stdout.count("FAILED")
         print(f"  Pre-check: {failed_count} broken_utils tests fail (expected)")
         assert failed_count >= 4, f"Expected ≥4 failures, got {failed_count}"
 
         project_id, sequence_id, execution_id = await _setup_execution(
-            live_client, repo, CAPABILITY_PLAN,
+            live_client,
+            repo,
+            CAPABILITY_PLAN,
             project_name="live-capability",
             sequence_name="capability-eval",
         )
@@ -1126,7 +1137,9 @@ class TestLiveCapability:
         assert result["status"] == "completed", (
             f"Execution {result['status']}. Check task results above."
         )
-        print(f"  ✓ Execution completed — {result['completed_tasks']}/{result['total_tasks']} tasks")
+        print(
+            f"  ✓ Execution completed — {result['completed_tasks']}/{result['total_tasks']} tasks"
+        )
 
         checks_passed = 0
         checks_total = 0
@@ -1171,8 +1184,10 @@ class TestLiveCapability:
         # ── 4. Scaffolding: git commit ────────────────────────
         checks_total += 1
         git_log = subprocess.run(
-            ["git", "log", "--oneline"], cwd=repo,
-            capture_output=True, text=True,
+            ["git", "log", "--oneline"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
         )
         commit_count = len(git_log.stdout.strip().split("\n"))
         if commit_count >= 3:
@@ -1195,18 +1210,24 @@ class TestLiveCapability:
         output_csv = repo / "eval_output.csv"
         pipe_result = subprocess.run(
             [
-                "python", "src/pipeline.py",
+                "python",
+                "src/pipeline.py",
                 "data/employees.json",
-                "--output", str(output_csv),
-                "--min-score", "50",
+                "--output",
+                str(output_csv),
+                "--min-score",
+                "50",
             ],
-            cwd=repo, capture_output=True, text=True, timeout=10,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if pipe_result.returncode == 0 and output_csv.exists():
             csv_lines = output_csv.read_text().strip().split("\n")
             # Header + 7 data rows (scores >= 50: 92,88,73,56,97,62,84)
             if len(csv_lines) == 8:
-                print(f"  ✓ [CLI exec] Pipeline: 1 header + 7 data rows")
+                print("  ✓ [CLI exec] Pipeline: 1 header + 7 data rows")
                 checks_passed += 1
             else:
                 print(f"  ✗ [CLI exec] Pipeline: {len(csv_lines)} lines (expected 8)")
@@ -1220,6 +1241,7 @@ class TestLiveCapability:
         if output_csv.exists() and len(output_csv.read_text().strip().split("\n")) > 1:
             import csv as csv_mod
             import io
+
             try:
                 reader = csv_mod.reader(io.StringIO(output_csv.read_text()))
                 header = next(reader)
@@ -1241,7 +1263,10 @@ class TestLiveCapability:
         if pipeline_tests.exists() and "def test_" in pipeline_tests.read_text():
             pt_result = subprocess.run(
                 ["python", "-m", "pytest", "tests/test_pipeline.py", "-v"],
-                cwd=repo, capture_output=True, text=True, timeout=15,
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             if pt_result.returncode == 0:
                 passed = pt_result.stdout.count("PASSED")
@@ -1257,7 +1282,10 @@ class TestLiveCapability:
         checks_total += 1
         bugfix_result = subprocess.run(
             ["python", "-m", "pytest", "tests/test_broken_utils.py", "-v"],
-            cwd=repo, capture_output=True, text=True, timeout=15,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if bugfix_result.returncode == 0:
             passed = bugfix_result.stdout.count("PASSED")
@@ -1272,7 +1300,9 @@ class TestLiveCapability:
         checks_total += 1
         test_diff = subprocess.run(
             ["git", "diff", "--", "tests/test_broken_utils.py"],
-            cwd=repo, capture_output=True, text=True,
+            cwd=repo,
+            capture_output=True,
+            text=True,
         )
         if not test_diff.stdout.strip():
             print("  ✓ [constraint] test_broken_utils.py not modified")
@@ -1285,7 +1315,10 @@ class TestLiveCapability:
         _print_section("FULL TEST SUITE")
         full_result = subprocess.run(
             ["python", "-m", "pytest", "tests/", "-v"],
-            cwd=repo, capture_output=True, text=True, timeout=30,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         print(full_result.stdout)
         if full_result.returncode == 0:
@@ -1298,17 +1331,6 @@ class TestLiveCapability:
         # ── Summary ───────────────────────────────────────────
         _print_section(f"CAPABILITY EVAL: {checks_passed}/{checks_total} CHECKS PASSED")
 
-        categories = {
-            "bash+git": [4],
-            "scaffold": [1, 2, 3],
-            "file creation": [5],
-            "CLI exec": [6],
-            "data processing": [7],
-            "test writing": [8],
-            "diagnosis+fix": [9],
-            "constraint": [10],
-            "integration": [11],
-        }
         # Already printed per-check, just assert
         assert checks_passed == checks_total, (
             f"{checks_total - checks_passed}/{checks_total} capability checks failed. "
@@ -1350,7 +1372,9 @@ class TestLiveProcessManagement:
         subprocess.run(["git", "add", "-A"], cwd=d, capture_output=True, check=True)
         subprocess.run(
             ["git", "commit", "-m", "add server"],
-            cwd=d, capture_output=True, check=True,
+            cwd=d,
+            capture_output=True,
+            check=True,
         )
 
         return d
@@ -1358,11 +1382,13 @@ class TestLiveProcessManagement:
     @pytest.fixture(autouse=True)
     def _cleanup_port(self):
         """Ensure the test port is free before and after the test."""
+
         def _kill_port():
             subprocess.run(
                 ["fuser", "-k", f"{self.TEST_PORT}/tcp"],
                 capture_output=True,
             )
+
         _kill_port()
         yield
         _kill_port()
@@ -1386,7 +1412,9 @@ class TestLiveProcessManagement:
         assert (repo / "src" / "server.py").exists()
 
         project_id, sequence_id, execution_id = await _setup_execution(
-            live_client, repo, PROCESS_MGMT_PLAN,
+            live_client,
+            repo,
+            PROCESS_MGMT_PLAN,
             project_name="live-process-mgmt",
             sequence_name="server-lifecycle",
         )
@@ -1407,7 +1435,9 @@ class TestLiveProcessManagement:
         assert result["status"] == "completed", (
             f"Execution {result['status']}. Check task results above."
         )
-        print(f"  ✓ Execution completed — {result['completed_tasks']}/{result['total_tasks']} tasks")
+        print(
+            f"  ✓ Execution completed — {result['completed_tasks']}/{result['total_tasks']} tasks"
+        )
 
         checks_passed = 0
         checks_total = 0
@@ -1427,7 +1457,9 @@ class TestLiveProcessManagement:
         if results_file.exists():
             try:
                 results_data = json.loads(results_file.read_text())
-                print(f"  ✓ [JSON parsing] Valid JSON: {json.dumps(results_data, indent=2)[:200]}")
+                print(
+                    f"  ✓ [JSON parsing] Valid JSON: {json.dumps(results_data, indent=2)[:200]}"
+                )
                 checks_passed += 1
             except json.JSONDecodeError as e:
                 print(f"  ✗ [JSON parsing] Invalid JSON: {e}")
@@ -1447,7 +1479,11 @@ class TestLiveProcessManagement:
                 print(f"  ✓ [lifecycle] All steps passed: {list(steps.keys())}")
                 checks_passed += 1
             else:
-                failed = {k: v for k, v in steps.items() if v != "pass" and k != "echo_response"}
+                failed = {
+                    k: v
+                    for k, v in steps.items()
+                    if v != "pass" and k != "echo_response"
+                }
                 print(f"  ✗ [lifecycle] Failed steps: {failed}")
         else:
             print("  ✗ [lifecycle] No steps data in results")
@@ -1457,7 +1493,7 @@ class TestLiveProcessManagement:
         if results_data and "steps" in results_data:
             echo_resp = results_data["steps"].get("echo_response", "")
             if "wave_eval_42" in str(echo_resp):
-                print(f"  ✓ [HTTP request] Echo response contains 'wave_eval_42'")
+                print("  ✓ [HTTP request] Echo response contains 'wave_eval_42'")
                 checks_passed += 1
             else:
                 print(f"  ✗ [HTTP request] Echo response: {echo_resp}")
@@ -1476,12 +1512,15 @@ class TestLiveProcessManagement:
         # ── 6. Server is actually stopped ─────────────────────
         checks_total += 1
         import socket
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.settimeout(1)
             conn_result = sock.connect_ex(("127.0.0.1", self.TEST_PORT))
             if conn_result != 0:
-                print(f"  ✓ [process stop] Port {self.TEST_PORT} is free (server stopped)")
+                print(
+                    f"  ✓ [process stop] Port {self.TEST_PORT} is free (server stopped)"
+                )
                 checks_passed += 1
             else:
                 print(f"  ✗ [process stop] Port {self.TEST_PORT} still in use!")
@@ -1489,7 +1528,9 @@ class TestLiveProcessManagement:
             sock.close()
 
         # ── Summary ───────────────────────────────────────────
-        _print_section(f"PROCESS MGMT EVAL: {checks_passed}/{checks_total} CHECKS PASSED")
+        _print_section(
+            f"PROCESS MGMT EVAL: {checks_passed}/{checks_total} CHECKS PASSED"
+        )
 
         assert checks_passed == checks_total, (
             f"{checks_total - checks_passed}/{checks_total} process management checks failed. "

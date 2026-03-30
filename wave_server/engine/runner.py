@@ -25,6 +25,7 @@ class AgentRunner(Protocol):
 @dataclass
 class _PiOutputFailure:
     """Result of inspecting pi's JSON output for fatal errors."""
+
     error: str
     rate_limited: bool = False
 
@@ -98,7 +99,10 @@ def _detect_pi_output_failure(stdout: str) -> _PiOutputFailure | None:
                 for m in messages:
                     if m.get("role") == "assistant":
                         for block in m.get("content", []):
-                            if block.get("type") == "text" and block.get("text", "").strip():
+                            if (
+                                block.get("type") == "text"
+                                and block.get("text", "").strip()
+                            ):
                                 had_any_successful_output = True
                             elif block.get("type") == "toolCall":
                                 had_any_successful_output = True
@@ -150,13 +154,15 @@ class PiRunner:
         cmd = [
             pi_bin,
             "--print",
-            "--mode", "json",
+            "--mode",
+            "json",
             "--no-extensions",
             "--no-skills",
             "--no-prompt-templates",
             "--no-themes",
             "--no-session",
-            "--tools", "read,bash,edit,write",
+            "--tools",
+            "read,bash,edit,write",
         ]
         if config.model:
             cmd += ["--model", config.model]
@@ -237,7 +243,10 @@ class PiRunner:
                     for m in reversed(messages):
                         if m.get("role") == "assistant":
                             for block in m.get("content", []):
-                                if block.get("type") == "text" and block.get("text", "").strip():
+                                if (
+                                    block.get("type") == "text"
+                                    and block.get("text", "").strip()
+                                ):
                                     result_parts.append(block["text"])
                             if result_parts:
                                 break
@@ -245,7 +254,10 @@ class PiRunner:
                     m = msg.get("message", {})
                     if m.get("role") == "assistant":
                         for block in m.get("content", []):
-                            if block.get("type") == "text" and block.get("text", "").strip():
+                            if (
+                                block.get("type") == "text"
+                                and block.get("text", "").strip()
+                            ):
                                 result_parts.append(block["text"])
             except (json.JSONDecodeError, KeyError):
                 continue
@@ -254,7 +266,7 @@ class PiRunner:
             return result_parts[-1]  # Last assistant text is the final output
 
         # Fallback: return last non-empty lines
-        lines = [l for l in stdout.split("\n") if l.strip()]
+        lines = [line for line in stdout.split("\n") if line.strip()]
         return "\n".join(lines[-10:]) if lines else "(no output)"
 
 
@@ -343,7 +355,7 @@ class ClaudeCodeRunner:
             return "\n".join(result_parts)
 
         # Fallback: return last non-empty lines
-        lines = [l for l in stdout.split("\n") if l.strip()]
+        lines = [line for line in stdout.split("\n") if line.strip()]
         return "\n".join(lines[-10:]) if lines else "(no output)"
 
 

@@ -1,14 +1,11 @@
 """Tests for the structured execution-level logger."""
 
-import time
 from unittest.mock import patch
 
 import pytest
 
 from wave_server.engine.execution_logger import (
     ExecutionLogger,
-    TaskRecord,
-    WaveRecord,
     _duration_str,
     _elapsed_str,
     _status_icon,
@@ -209,7 +206,9 @@ class TestTaskEvents:
         logger = _make_logger()
         logger.execution_started()
         logger.wave_started("W1", 0)
-        logger.task_ended("foundation", _task(), _result(exit_code=1, stderr="TypeError: bad"))
+        logger.task_ended(
+            "foundation", _task(), _result(exit_code=1, stderr="TypeError: bad")
+        )
         text = logger.render()
         assert "❌" in text
         assert "TypeError: bad" in text
@@ -315,9 +314,15 @@ class TestExecutionFinished:
 
         logger.task_started("feature:auth", t2)
         if fail:
-            logger.task_ended("feature:auth", t2, _result(exit_code=1, duration_ms=5000, stderr="AssertionError: bad"))
+            logger.task_ended(
+                "feature:auth",
+                t2,
+                _result(exit_code=1, duration_ms=5000, stderr="AssertionError: bad"),
+            )
         else:
-            logger.task_ended("feature:auth", t2, _result(exit_code=0, duration_ms=5000))
+            logger.task_ended(
+                "feature:auth", t2, _result(exit_code=0, duration_ms=5000)
+            )
 
         logger.task_started("integration", t3)
         if fail:
@@ -413,7 +418,7 @@ class TestRender:
         logger.execution_started()
         lines = logger.render_lines()
         assert isinstance(lines, list)
-        assert all(isinstance(l, str) for l in lines)
+        assert all(isinstance(line, str) for line in lines)
 
     def test_render_lines_is_copy(self):
         logger = _make_logger()

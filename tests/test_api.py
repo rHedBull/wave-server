@@ -1,5 +1,3 @@
-from unittest.mock import AsyncMock, patch
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,9 +121,7 @@ async def test_get_sequence(client: AsyncClient):
 async def test_update_sequence(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "old"}
-    )
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "old"})
     sid = seq.json()["id"]
     r = await client.patch(f"/api/v1/sequences/{sid}", json={"status": "planned"})
     assert r.status_code == 200
@@ -205,9 +201,14 @@ async def test_delete_sequence_cascades_events_and_commands(
     # Verify events and commands are gone
     from sqlalchemy import select
     from wave_server.models import Event as EventModel, Command as CommandModel
-    result = await db_session.execute(select(EventModel).where(EventModel.id == event_id))
+
+    result = await db_session.execute(
+        select(EventModel).where(EventModel.id == event_id)
+    )
     assert result.scalar_one_or_none() is None
-    result = await db_session.execute(select(CommandModel).where(CommandModel.id == cmd_id))
+    result = await db_session.execute(
+        select(CommandModel).where(CommandModel.id == cmd_id)
+    )
     assert result.scalar_one_or_none() is None
 
 
@@ -215,9 +216,7 @@ async def test_delete_sequence_cascades_events_and_commands(
 async def test_delete_sequence_preserves_project(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "s"})
     sid = seq.json()["id"]
     r = await client.delete(f"/api/v1/sequences/{sid}")
     assert r.status_code == 204
@@ -250,9 +249,7 @@ async def test_update_sequence_partial_description_only(client: AsyncClient):
         f"/api/v1/projects/{pid}/sequences", json={"name": "keep-name"}
     )
     sid = seq.json()["id"]
-    r = await client.patch(
-        f"/api/v1/sequences/{sid}", json={"description": "new desc"}
-    )
+    r = await client.patch(f"/api/v1/sequences/{sid}", json={"description": "new desc"})
     assert r.status_code == 200
     assert r.json()["name"] == "keep-name"
     assert r.json()["description"] == "new desc"
@@ -284,12 +281,8 @@ async def test_list_repositories(client: AsyncClient, tmp_path):
     d1.mkdir()
     d2 = tmp_path / "r2"
     d2.mkdir()
-    await client.post(
-        f"/api/v1/projects/{pid}/repositories", json={"path": str(d1)}
-    )
-    await client.post(
-        f"/api/v1/projects/{pid}/repositories", json={"path": str(d2)}
-    )
+    await client.post(f"/api/v1/projects/{pid}/repositories", json={"path": str(d1)})
+    await client.post(f"/api/v1/projects/{pid}/repositories", json={"path": str(d2)})
     r = await client.get(f"/api/v1/projects/{pid}/repositories")
     assert r.status_code == 200
     assert len(r.json()) == 2
@@ -339,12 +332,8 @@ async def test_add_context_file(client: AsyncClient):
 async def test_list_context_files(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    await client.post(
-        f"/api/v1/projects/{pid}/context-files", json={"path": "/f1"}
-    )
-    await client.post(
-        f"/api/v1/projects/{pid}/context-files", json={"path": "/f2"}
-    )
+    await client.post(f"/api/v1/projects/{pid}/context-files", json={"path": "/f1"})
+    await client.post(f"/api/v1/projects/{pid}/context-files", json={"path": "/f2"})
     r = await client.get(f"/api/v1/projects/{pid}/context-files")
     assert r.status_code == 200
     assert len(r.json()) == 2
@@ -354,9 +343,7 @@ async def test_list_context_files(client: AsyncClient):
 async def test_delete_context_file(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    cf = await client.post(
-        f"/api/v1/projects/{pid}/context-files", json={"path": "/f"}
-    )
+    cf = await client.post(f"/api/v1/projects/{pid}/context-files", json={"path": "/f"})
     fid = cf.json()["id"]
     r = await client.delete(f"/api/v1/projects/{pid}/context-files/{fid}")
     assert r.status_code == 204
@@ -379,9 +366,7 @@ async def test_delete_context_file_not_found(client: AsyncClient):
 async def test_spec_upload_and_get(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "s"})
     sid = seq.json()["id"]
     r = await client.post(
         f"/api/v1/sequences/{sid}/spec",
@@ -398,9 +383,7 @@ async def test_spec_upload_and_get(client: AsyncClient):
 async def test_spec_not_found(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "s"})
     sid = seq.json()["id"]
     r = await client.get(f"/api/v1/sequences/{sid}/spec")
     assert r.status_code == 404
@@ -410,9 +393,7 @@ async def test_spec_not_found(client: AsyncClient):
 async def test_plan_upload_and_get(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "proj"})
     pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "s"})
     sid = seq.json()["id"]
     r = await client.post(
         f"/api/v1/sequences/{sid}/plan",
@@ -512,9 +493,7 @@ async def test_rerun_not_found(client: AsyncClient):
 async def test_delete_project_cascades(client: AsyncClient):
     proj = await client.post("/api/v1/projects", json={"name": "cascade"})
     pid = proj.json()["id"]
-    seq = await client.post(
-        f"/api/v1/projects/{pid}/sequences", json={"name": "s"}
-    )
+    seq = await client.post(f"/api/v1/projects/{pid}/sequences", json={"name": "s"})
     sid = seq.json()["id"]
     await client.post(f"/api/v1/sequences/{sid}/executions", json={})
     r = await client.delete(f"/api/v1/projects/{pid}")

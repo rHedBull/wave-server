@@ -180,7 +180,9 @@ class CommandResponse(BaseModel):
 
 
 class PromoteRequest(BaseModel):
-    promotion_target: str | None = None  # target branch for promotion PR (default: "main")
+    promotion_target: str | None = (
+        None  # target branch for promotion PR (default: "main")
+    )
     merge_method: str = "squash"  # squash | merge | rebase
 
 
@@ -193,6 +195,7 @@ class PromoteResponse(BaseModel):
 
 # --- Quick Fix ---
 
+
 class QuickFixRequest(BaseModel):
     prompt: str
     branch: str
@@ -203,6 +206,7 @@ class QuickFixRequest(BaseModel):
     auto_promote: bool = False
     model: str | None = None
     timeout_ms: int | None = None
+
 
 class QuickFixResponse(BaseModel):
     success: bool
@@ -217,6 +221,7 @@ class QuickFixResponse(BaseModel):
 
 
 # --- Standalone Promote ---
+
 
 class StandalonePromoteRequest(BaseModel):
     pr_url: str

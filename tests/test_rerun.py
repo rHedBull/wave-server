@@ -8,7 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from wave_server.engine.dag import compute_dirty_closure
 from wave_server.engine.types import Feature, Plan, Task, Wave
@@ -17,7 +16,9 @@ from wave_server.engine.types import Feature, Plan, Task, Wave
 # ── Helpers ────────────────────────────────────────────────────
 
 
-def _task(id: str, depends: list[str] | None = None, files: list[str] | None = None) -> Task:
+def _task(
+    id: str, depends: list[str] | None = None, files: list[str] | None = None
+) -> Task:
     return Task(id=id, title=f"Task {id}", depends=depends or [], files=files or [])
 
 
@@ -112,7 +113,7 @@ class TestDirtyClosureCascade:
         # w1-billing-t2 is in features → integration becomes dirty
         assert "w1-billing-t2" in dirty
         assert "w1-billing-t1" in dirty  # explicit dep on w1-billing-t2
-        assert "w1-int-1" in dirty       # implicit: features → integration
+        assert "w1-int-1" in dirty  # implicit: features → integration
         # Foundation and other features NOT dirty
         assert "w1-f1" not in dirty
         assert "w1-f2" not in dirty
@@ -271,9 +272,12 @@ class TestRerunSkipSet:
         """Simulate: 7 completed tasks, rerun w1-billing-t2 with cascade."""
         plan = _example_plan()
         all_completed = {
-            "w1-f1", "w1-f2",
-            "w1-users-t1", "w1-users-t2",
-            "w1-billing-t1", "w1-billing-t2",
+            "w1-f1",
+            "w1-f2",
+            "w1-users-t1",
+            "w1-users-t2",
+            "w1-billing-t1",
+            "w1-billing-t2",
             "w1-int-1",
         }
         rerun_ids = {"w1-billing-t2"}
@@ -289,9 +293,12 @@ class TestRerunSkipSet:
         """Simulate: 7 completed tasks, rerun w1-billing-t2 isolated."""
         plan = _example_plan()
         all_completed = {
-            "w1-f1", "w1-f2",
-            "w1-users-t1", "w1-users-t2",
-            "w1-billing-t1", "w1-billing-t2",
+            "w1-f1",
+            "w1-f2",
+            "w1-users-t1",
+            "w1-users-t2",
+            "w1-billing-t1",
+            "w1-billing-t2",
             "w1-int-1",
         }
         rerun_ids = {"w1-billing-t2"}
@@ -306,9 +313,12 @@ class TestRerunSkipSet:
         """Rerun a foundation task with cascade — most tasks should run."""
         plan = _example_plan()
         all_completed = {
-            "w1-f1", "w1-f2",
-            "w1-users-t1", "w1-users-t2",
-            "w1-billing-t1", "w1-billing-t2",
+            "w1-f1",
+            "w1-f2",
+            "w1-users-t1",
+            "w1-users-t2",
+            "w1-billing-t1",
+            "w1-billing-t2",
             "w1-int-1",
         }
         rerun_ids = {"w1-f2"}

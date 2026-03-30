@@ -27,7 +27,6 @@ from wave_server.engine.git_worktree import (
     merge_feature_branches,
     merge_sub_worktrees,
 )
-from wave_server.engine.types import FeatureWorktree, SubWorktree
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -37,7 +36,10 @@ def _git(args: str, cwd: str) -> str:
     """Sync git helper for test setup."""
     return subprocess.run(
         ["git"] + args.split(),
-        cwd=cwd, capture_output=True, text=True, check=True,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
@@ -351,7 +353,9 @@ class TestMergeSubWorktrees:
         assert len(subs) == 1
 
         # Don't write any files in the sub-worktree
-        results = [{"task_id": "t1", "exit_code": 0, "title": "Noop", "agent": "worker"}]
+        results = [
+            {"task_id": "t1", "exit_code": 0, "title": "Noop", "agent": "worker"}
+        ]
         merge_results = await merge_sub_worktrees(feature_wt, subs, results)
 
         assert len(merge_results) == 1
@@ -453,7 +457,10 @@ class TestMergeFeatureBranches:
         _git("add -A", wt.dir)
         subprocess.run(
             ["git", "commit", "-m", "impl projects"],
-            cwd=wt.dir, capture_output=True, text=True, check=True,
+            cwd=wt.dir,
+            capture_output=True,
+            text=True,
+            check=True,
         )
 
         results = [{"name": "projects", "passed": False}]

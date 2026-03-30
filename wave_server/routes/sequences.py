@@ -87,18 +87,14 @@ async def create_sequence(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    seq = Sequence(
-        project_id=project_id, name=body.name, description=body.description
-    )
+    seq = Sequence(project_id=project_id, name=body.name, description=body.description)
     db.add(seq)
     await db.commit()
     await db.refresh(seq)
     return seq
 
 
-@router.get(
-    "/projects/{project_id}/sequences", response_model=list[SequenceResponse]
-)
+@router.get("/projects/{project_id}/sequences", response_model=list[SequenceResponse])
 async def list_sequences(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Sequence)
@@ -148,15 +144,11 @@ async def delete_sequence(sequence_id: str, db: AsyncSession = Depends(get_db)):
         select(Execution.id).where(Execution.sequence_id == sequence_id)
     )
     for (exec_id,) in exec_ids.all():
-        await db.execute(
-            Event.__table__.delete().where(Event.execution_id == exec_id)
-        )
+        await db.execute(Event.__table__.delete().where(Event.execution_id == exec_id))
         await db.execute(
             Command.__table__.delete().where(Command.execution_id == exec_id)
         )
-        await db.execute(
-            Execution.__table__.delete().where(Execution.id == exec_id)
-        )
+        await db.execute(Execution.__table__.delete().where(Execution.id == exec_id))
     await db.delete(seq)
     await db.commit()
 
@@ -241,20 +233,22 @@ async def get_plan_graph(sequence_id: str, db: AsyncSession = Depends(get_db)):
 
     waves = []
     for i, wave in enumerate(plan.waves):
-        waves.append({
-            "index": i,
-            "name": wave.name,
-            "description": wave.description or "",
-            "foundation": [task_to_dict(t) for t in wave.foundation],
-            "features": [
-                {
-                    "name": f.name,
-                    "files": f.files,
-                    "tasks": [task_to_dict(t) for t in f.tasks],
-                }
-                for f in wave.features
-            ],
-            "integration": [task_to_dict(t) for t in wave.integration],
-        })
+        waves.append(
+            {
+                "index": i,
+                "name": wave.name,
+                "description": wave.description or "",
+                "foundation": [task_to_dict(t) for t in wave.foundation],
+                "features": [
+                    {
+                        "name": f.name,
+                        "files": f.files,
+                        "tasks": [task_to_dict(t) for t in f.tasks],
+                    }
+                    for f in wave.features
+                ],
+                "integration": [task_to_dict(t) for t in wave.integration],
+            }
+        )
 
     return {"goal": plan.goal, "waves": waves}

@@ -17,25 +17,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import textwrap
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from wave_server.db import Base
-from wave_server.engine.execution_manager import _load_context_files, _run_execution
-from wave_server.engine.runner import AgentRunner
+from wave_server.engine.execution_manager import _load_context_files
 from wave_server.engine.types import (
     Feature,
     Plan,
     RunnerConfig,
     RunnerResult,
     Task,
-    TaskResult,
     Wave,
 )
 from wave_server.engine.wave_executor import (
@@ -44,12 +40,8 @@ from wave_server.engine.wave_executor import (
     execute_wave,
 )
 from wave_server.models import (
-    Event,
-    Execution,
     Project,
-    ProjectContextFile,
     ProjectRepository,
-    Sequence,
 )
 
 
@@ -116,10 +108,20 @@ def _task(
 def _simple_plan_md(num_waves: int = 1, tasks_per_wave: int = 1) -> str:
     """Generate a simple valid plan markdown (v2 format)."""
     lines = [
-        "# Implementation Plan", "<!-- format: v2 -->", "",
-        "## Project Structure", "```", "src/", "```", "",
-        "## Data Schemas", "No schemas.", "",
-        "## Goal", "Test goal", "",
+        "# Implementation Plan",
+        "<!-- format: v2 -->",
+        "",
+        "## Project Structure",
+        "```",
+        "src/",
+        "```",
+        "",
+        "## Data Schemas",
+        "No schemas.",
+        "",
+        "## Goal",
+        "Test goal",
+        "",
     ]
     task_counter = 0
     for w in range(1, num_waves + 1):
@@ -130,14 +132,16 @@ def _simple_plan_md(num_waves: int = 1, tasks_per_wave: int = 1) -> str:
         for t in range(1, tasks_per_wave + 1):
             task_counter += 1
             tid = f"{w}-{t}"
-            dep = f"- **Depends:** {w}-{t-1}" if t > 1 else "- **Depends:** (none)"
-            lines.extend([
-                f"#### Task {tid}: Task {tid}",
-                f"- **Files:** `file{task_counter}.py`",
-                dep,
-                f"- **Description:** Do task {tid}",
-                "",
-            ])
+            dep = f"- **Depends:** {w}-{t - 1}" if t > 1 else "- **Depends:** (none)"
+            lines.extend(
+                [
+                    f"#### Task {tid}: Task {tid}",
+                    f"- **Files:** `file{task_counter}.py`",
+                    dep,
+                    f"- **Description:** Do task {tid}",
+                    "",
+                ]
+            )
     return "\n".join(lines)
 
 
@@ -213,11 +217,14 @@ class TestWaveStateTransitions:
         wave = Wave(
             name="W1",
             features=[
-                Feature(name="default", tasks=[
-                    _task("1-1"),
-                    _task("1-2", depends=["1-1"]),
-                    _task("1-3", depends=["1-2"]),
-                ])
+                Feature(
+                    name="default",
+                    tasks=[
+                        _task("1-1"),
+                        _task("1-2", depends=["1-1"]),
+                        _task("1-3", depends=["1-2"]),
+                    ],
+                )
             ],
         )
         runner = MockRunner(results={"1-1": 1})
@@ -236,7 +243,9 @@ class TestWaveStateTransitions:
         wave = Wave(
             name="W1",
             features=[
-                Feature(name="default", tasks=[_task("1-1"), _task("1-2"), _task("1-3")])
+                Feature(
+                    name="default", tasks=[_task("1-1"), _task("1-2"), _task("1-3")]
+                )
             ],
         )
         runner = MockRunner(results={"1-1": 1})
@@ -329,9 +338,7 @@ class TestWaveStateTransitions:
     async def test_skip_already_completed_tasks(self):
         wave = Wave(
             name="W1",
-            features=[
-                Feature(name="default", tasks=[_task("1-1"), _task("1-2")])
-            ],
+            features=[Feature(name="default", tasks=[_task("1-1"), _task("1-2")])],
         )
         runner = MockRunner()
         result = await execute_wave(
@@ -377,9 +384,7 @@ class TestWaveCallbacks:
                 wave=wave,
                 wave_num=1,
                 runner=runner,
-                on_task_start=lambda phase, task: started.append(
-                    (phase, task.id)
-                ),
+                on_task_start=lambda phase, task: started.append((phase, task.id)),
             )
         )
         assert ("feature:default", "1-1") in started
@@ -466,7 +471,7 @@ class TestWaveCallbacks:
                 on_log=lambda line: logs.append(line),
             )
         )
-        assert any("failed" in l.lower() for l in logs)
+        assert any("failed" in line.lower() for line in logs)
 
 
 # ── Wave Executor: CWD Propagation ────────────────────────────
@@ -499,9 +504,7 @@ class TestCwdPropagation:
             features=[Feature(name="default", tasks=[_task("1-1")])],
         )
         runner = MockRunner()
-        await execute_wave(
-            WaveExecutorOptions(wave=wave, wave_num=1, runner=runner)
-        )
+        await execute_wave(WaveExecutorOptions(wave=wave, wave_num=1, runner=runner))
         assert runner.cwds == ["."]
 
 
@@ -969,7 +972,7 @@ class TestDAGInExecution:
                         )
                     ],
                 )
-            ]
+            ],
         )
         valid, errors = validate_plan(plan)
         assert valid
@@ -990,7 +993,7 @@ class TestDAGInExecution:
                         )
                     ],
                 )
-            ]
+            ],
         )
         valid, errors = validate_plan(plan)
         assert not valid
@@ -1013,7 +1016,7 @@ class TestDAGInExecution:
                         )
                     ],
                 )
-            ]
+            ],
         )
         valid, errors = validate_plan(plan)
         assert not valid
@@ -1034,9 +1037,7 @@ class TestTimeout:
 
         class TimingOutRunner:
             async def spawn(self, config: RunnerConfig) -> RunnerResult:
-                return RunnerResult(
-                    exit_code=1, stdout="", stderr="", timed_out=True
-                )
+                return RunnerResult(exit_code=1, stdout="", stderr="", timed_out=True)
 
             def extract_final_output(self, stdout: str) -> str:
                 return ""
@@ -1097,9 +1098,7 @@ class TestFeatureConcurrency:
         assert "i1" not in runner.spawned
         # Auth passed, profile failed
         auth_result = next(r for r in result.feature_results if r.name == "auth")
-        profile_result = next(
-            r for r in result.feature_results if r.name == "profile"
-        )
+        profile_result = next(r for r in result.feature_results if r.name == "profile")
         assert auth_result.passed
         assert not profile_result.passed
 

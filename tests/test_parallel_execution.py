@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 import time
 from unittest.mock import patch
 
@@ -29,11 +28,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from wave_server.db import Base
 from wave_server.engine.types import (
     Feature,
-    Plan,
     RunnerConfig,
     RunnerResult,
     Task,
-    TaskResult,
     Wave,
 )
 from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave
@@ -92,7 +89,9 @@ class MockRunner:
         exit_code = self.results.get(config.task_id, 0)
         return RunnerResult(
             exit_code=exit_code,
-            stdout=json.dumps({"type": "result", "result": f"Output for {config.task_id}"}),
+            stdout=json.dumps(
+                {"type": "result", "result": f"Output for {config.task_id}"}
+            ),
             stderr="" if exit_code == 0 else f"Error in {config.task_id}",
         )
 
@@ -257,17 +256,24 @@ Test parallel foundation
 """
 
     @pytest.mark.asyncio
-    async def test_four_parallel_foundation_all_complete(self, test_db, _mock_storage, tmp_path):
+    async def test_four_parallel_foundation_all_complete(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """4 independent foundation tasks should all complete without DB errors."""
         _mock_storage.read_plan.return_value = self.PARALLEL_FOUNDATION_PLAN
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
         runner = MockRunner(default_delay=0.01)
-        seq_id, exec_id = await _setup(test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir))
+        seq_id, exec_id = await _setup(
+            test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir)
+        )
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -275,17 +281,24 @@ Test parallel foundation
         assert exc.completed_tasks == 4
 
     @pytest.mark.asyncio
-    async def test_parallel_tasks_no_lost_events(self, test_db, _mock_storage, tmp_path):
+    async def test_parallel_tasks_no_lost_events(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """All task_started and task_completed events must be recorded."""
         _mock_storage.read_plan.return_value = self.PARALLEL_FOUNDATION_PLAN
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
         runner = MockRunner(default_delay=0.01)
-        seq_id, exec_id = await _setup(test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir))
+        seq_id, exec_id = await _setup(
+            test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir)
+        )
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
@@ -295,7 +308,9 @@ Test parallel foundation
         assert event_types.count("task_completed") == 4
 
     @pytest.mark.asyncio
-    async def test_simultaneous_completions_no_db_error(self, test_db, _mock_storage, tmp_path):
+    async def test_simultaneous_completions_no_db_error(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Tasks completing at exactly the same time should not cause DB contention."""
         _mock_storage.read_plan.return_value = self.PARALLEL_FOUNDATION_PLAN
         repo_dir = tmp_path / "repo"
@@ -307,8 +322,11 @@ Test parallel foundation
             test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir), concurrency=4
         )
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -323,10 +341,15 @@ Test parallel foundation
         repo_dir.mkdir()
 
         runner = MockRunner(delays={"f1": 0.01, "f2": 0.02, "f3": 0.03, "f4": 0.04})
-        seq_id, exec_id = await _setup(test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir))
+        seq_id, exec_id = await _setup(
+            test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir)
+        )
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -336,22 +359,30 @@ Test parallel foundation
         events = await _get_events(test_db, exec_id)
         completed_ids = [
             json.loads(e.payload)["task_id"]
-            for e in events if e.event_type == "task_completed"
+            for e in events
+            if e.event_type == "task_completed"
         ]
         assert set(completed_ids) == {"f1", "f2", "f3", "f4"}
 
     @pytest.mark.asyncio
-    async def test_one_parallel_task_fails_others_still_complete(self, test_db, _mock_storage, tmp_path):
+    async def test_one_parallel_task_fails_others_still_complete(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """When one parallel foundation task fails, others may still run (DAG independent)."""
         _mock_storage.read_plan.return_value = self.PARALLEL_FOUNDATION_PLAN
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
         runner = MockRunner(results={"f2": 1}, default_delay=0.01)
-        seq_id, exec_id = await _setup(test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir))
+        seq_id, exec_id = await _setup(
+            test_db, self.PARALLEL_FOUNDATION_PLAN, str(repo_dir)
+        )
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -446,8 +477,11 @@ Test wave transitions
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, self.THREE_WAVE_PLAN, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -456,7 +490,9 @@ Test wave transitions
         assert set(runner.spawned) == {"1-1", "2-1", "2-2", "3-1"}
 
     @pytest.mark.asyncio
-    async def test_wave_transition_emits_phase_changed_events(self, test_db, _mock_storage, tmp_path):
+    async def test_wave_transition_emits_phase_changed_events(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Each wave should emit a phase_changed event."""
         _mock_storage.read_plan.return_value = self.THREE_WAVE_PLAN
         repo_dir = tmp_path / "repo"
@@ -465,8 +501,11 @@ Test wave transitions
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, self.THREE_WAVE_PLAN, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
@@ -486,8 +525,11 @@ Test wave transitions
         runner = MockRunner(results={"2-1": 1})
         seq_id, exec_id = await _setup(test_db, self.THREE_WAVE_PLAN, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -503,7 +545,9 @@ Test wave transitions
         assert payloads[1]["passed"] is False
 
     @pytest.mark.asyncio
-    async def test_current_wave_updates_during_execution(self, test_db, _mock_storage, tmp_path):
+    async def test_current_wave_updates_during_execution(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """current_wave should be updated as each wave starts."""
         _mock_storage.read_plan.return_value = self.THREE_WAVE_PLAN
         repo_dir = tmp_path / "repo"
@@ -525,8 +569,12 @@ Test wave transitions
 
         seq_id, exec_id = await _setup(test_db, self.THREE_WAVE_PLAN, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=TrackingRunner()):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner",
+            return_value=TrackingRunner(),
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         # Each task should see its own wave index
@@ -539,7 +587,9 @@ Test wave transitions
                 assert wave_idx == 2
 
     @pytest.mark.asyncio
-    async def test_wave_transition_with_parallel_tasks_in_wave2(self, test_db, _mock_storage, tmp_path):
+    async def test_wave_transition_with_parallel_tasks_in_wave2(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Wave 1 (serial) → Wave 2 (parallel) transition should work cleanly."""
         plan = """\
 # Implementation Plan
@@ -602,8 +652,11 @@ Serial to parallel wave transition
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir), concurrency=3)
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -724,9 +777,7 @@ Files: `billing.py`
         )
         runner = MockRunner(default_delay=0.05)
         result = await execute_wave(
-            WaveExecutorOptions(
-                wave=wave, wave_num=1, runner=runner, max_concurrency=4
-            )
+            WaveExecutorOptions(wave=wave, wave_num=1, runner=runner, max_concurrency=4)
         )
         assert result.passed
         assert set(runner.spawned) == {"a1", "b1", "p1"}
@@ -764,15 +815,21 @@ Files: `billing.py`
         wave = Wave(
             name="W1",
             features=[
-                Feature(name="auth", tasks=[
-                    _task("a1"),
-                    _task("a2", depends=["a1"]),
-                    _task("a3", depends=["a2"]),
-                ]),
-                Feature(name="billing", tasks=[
-                    _task("b1"),
-                    _task("b2", depends=["b1"]),
-                ]),
+                Feature(
+                    name="auth",
+                    tasks=[
+                        _task("a1"),
+                        _task("a2", depends=["a1"]),
+                        _task("a3", depends=["a2"]),
+                    ],
+                ),
+                Feature(
+                    name="billing",
+                    tasks=[
+                        _task("b1"),
+                        _task("b2", depends=["b1"]),
+                    ],
+                ),
             ],
         )
         runner = MockRunner(default_delay=0.01)
@@ -792,12 +849,15 @@ Files: `billing.py`
         wave = Wave(
             name="W1",
             features=[
-                Feature(name="complex", tasks=[
-                    _task("root"),
-                    _task("left", depends=["root"]),
-                    _task("right", depends=["root"]),
-                    _task("merge", depends=["left", "right"]),
-                ]),
+                Feature(
+                    name="complex",
+                    tasks=[
+                        _task("root"),
+                        _task("left", depends=["root"]),
+                        _task("right", depends=["root"]),
+                        _task("merge", depends=["left", "right"]),
+                    ],
+                ),
             ],
         )
         runner = MockRunner(default_delay=0.01)
@@ -823,7 +883,9 @@ class TestEventOrderingUnderConcurrency:
     """Verify events maintain logical ordering even with concurrent tasks."""
 
     @pytest.mark.asyncio
-    async def test_run_started_is_first_run_completed_is_last(self, test_db, _mock_storage, tmp_path):
+    async def test_run_started_is_first_run_completed_is_last(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """run_started must be first, run_completed must be last."""
         plan = """\
 # Implementation Plan
@@ -871,8 +933,11 @@ Event ordering test
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
@@ -882,7 +947,9 @@ Event ordering test
         assert types[-1] == "run_completed"
 
     @pytest.mark.asyncio
-    async def test_task_started_before_task_completed(self, test_db, _mock_storage, tmp_path):
+    async def test_task_started_before_task_completed(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """For each task, started must come before completed."""
         plan = """\
 # Implementation Plan
@@ -935,18 +1002,23 @@ Ordering
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
         for task_id in ["1-1", "1-2", "1-3"]:
             started_idx = next(
-                i for i, e in enumerate(events)
+                i
+                for i, e in enumerate(events)
                 if e.event_type == "task_started" and e.task_id == task_id
             )
             completed_idx = next(
-                i for i, e in enumerate(events)
+                i
+                for i, e in enumerate(events)
                 if e.event_type == "task_completed" and e.task_id == task_id
             )
             assert started_idx < completed_idx, (
@@ -955,7 +1027,9 @@ Ordering
             )
 
     @pytest.mark.asyncio
-    async def test_phase_changed_before_wave_tasks(self, test_db, _mock_storage, tmp_path):
+    async def test_phase_changed_before_wave_tasks(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """phase_changed for a wave should come before that wave's tasks."""
         plan = """\
 # Implementation Plan
@@ -1008,27 +1082,34 @@ Phase ordering
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
 
         # Find phase_changed for wave 2
         phase2_idx = next(
-            i for i, e in enumerate(events)
+            i
+            for i, e in enumerate(events)
             if e.event_type == "phase_changed"
             and json.loads(e.payload).get("wave_name") == "Second"
         )
         # Find task_started for task 2-1
         task2_started_idx = next(
-            i for i, e in enumerate(events)
+            i
+            for i, e in enumerate(events)
             if e.event_type == "task_started" and e.task_id == "2-1"
         )
         assert phase2_idx < task2_started_idx
 
     @pytest.mark.asyncio
-    async def test_wave_completed_after_all_wave_tasks(self, test_db, _mock_storage, tmp_path):
+    async def test_wave_completed_after_all_wave_tasks(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """wave_completed should come after all task events for that wave."""
         plan = """\
 # Implementation Plan
@@ -1076,19 +1157,23 @@ Wave completion ordering
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         events = await _get_events(test_db, exec_id)
 
         wave_completed_idx = next(
-            i for i, e in enumerate(events)
-            if e.event_type == "wave_completed"
+            i for i, e in enumerate(events) if e.event_type == "wave_completed"
         )
         last_task_idx = max(
-            i for i, e in enumerate(events)
-            if e.event_type in ("task_completed", "task_failed") and e.task_id in ("1-1", "1-2")
+            i
+            for i, e in enumerate(events)
+            if e.event_type in ("task_completed", "task_failed")
+            and e.task_id in ("1-1", "1-2")
         )
         assert wave_completed_idx > last_task_idx
 
@@ -1102,7 +1187,9 @@ class TestTaskCountAccuracy:
     """Verify completed_tasks counter is accurate with concurrent updates."""
 
     @pytest.mark.asyncio
-    async def test_completed_count_exact_with_parallel(self, test_db, _mock_storage, tmp_path):
+    async def test_completed_count_exact_with_parallel(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """completed_tasks should equal actual completions, no off-by-one errors."""
         plan = """\
 # Implementation Plan
@@ -1165,8 +1252,11 @@ Count test
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir), concurrency=5)
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1174,7 +1264,9 @@ Count test
         assert exc.total_tasks == 5
 
     @pytest.mark.asyncio
-    async def test_completed_count_with_mixed_pass_fail(self, test_db, _mock_storage, tmp_path):
+    async def test_completed_count_with_mixed_pass_fail(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Failed tasks still increment the completed counter.
 
         Flat tasks go into a single 'default' feature and execute
@@ -1232,8 +1324,11 @@ Mixed count
         runner = MockRunner(results={"1-2": 1}, default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1242,7 +1337,9 @@ Mixed count
         assert exc.status == "failed"
 
     @pytest.mark.asyncio
-    async def test_total_tasks_spans_multiple_waves(self, test_db, _mock_storage, tmp_path):
+    async def test_total_tasks_spans_multiple_waves(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """total_tasks should count tasks across all waves."""
         plan = """\
 # Implementation Plan
@@ -1310,8 +1407,11 @@ Multi-wave count
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1349,8 +1449,12 @@ class TestComplexScenarios:
                 wave=wave,
                 wave_num=1,
                 runner=runner,
-                on_task_start=lambda phase, task: started_phases.append((phase, task.id)),
-                on_task_end=lambda phase, task, result: ended_phases.append((phase, task.id)),
+                on_task_start=lambda phase, task: started_phases.append(
+                    (phase, task.id)
+                ),
+                on_task_end=lambda phase, task, result: ended_phases.append(
+                    (phase, task.id)
+                ),
             )
         )
         assert result.passed
@@ -1365,7 +1469,9 @@ class TestComplexScenarios:
         assert integration_tasks == ["i1", "i2"]
 
     @pytest.mark.asyncio
-    async def test_multi_wave_with_foundation_and_features(self, test_db, _mock_storage, tmp_path):
+    async def test_multi_wave_with_foundation_and_features(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Two waves each with foundation + features."""
         plan = """\
 # Implementation Plan
@@ -1440,8 +1546,11 @@ Files: `profile.py`
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1450,7 +1559,9 @@ Files: `profile.py`
         assert set(runner.spawned) == {"f1", "a1", "p1", "t1", "t2"}
 
     @pytest.mark.asyncio
-    async def test_wave1_foundation_failure_no_features_no_wave2(self, test_db, _mock_storage, tmp_path):
+    async def test_wave1_foundation_failure_no_features_no_wave2(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Foundation failure in wave 1 → no features, no wave 2."""
         plan = """\
 # Implementation Plan
@@ -1511,8 +1622,11 @@ Files: `auth.py`
         runner = MockRunner(results={"f1": 1})
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1544,8 +1658,11 @@ class TestStressConcurrency:
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir), concurrency=8)
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1570,8 +1687,11 @@ class TestStressConcurrency:
         runner = MockRunner(default_delay=0)  # All instant
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir), concurrency=10)
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1579,7 +1699,9 @@ class TestStressConcurrency:
         assert exc.completed_tasks == 10
 
     @pytest.mark.asyncio
-    async def test_three_waves_each_with_parallel_tasks(self, test_db, _mock_storage, tmp_path):
+    async def test_three_waves_each_with_parallel_tasks(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """3 waves, each with multiple parallel tasks."""
         waves_md = []
         total = 0
@@ -1592,7 +1714,10 @@ class TestStressConcurrency:
             waves_md.append(f"## Wave {w}: Wave{w}\n\n### Foundation\n\n{tasks}")
             total += task_count
 
-        plan = "# Implementation Plan\n<!-- format: v2 -->\n\n## Project Structure\n```\nsrc/\n```\n\n## Data Schemas\nNo schemas.\n\n## Goal\nMulti-wave stress\n\n" + "\n".join(waves_md)
+        plan = (
+            "# Implementation Plan\n<!-- format: v2 -->\n\n## Project Structure\n```\nsrc/\n```\n\n## Data Schemas\nNo schemas.\n\n## Goal\nMulti-wave stress\n\n"
+            + "\n".join(waves_md)
+        )
         _mock_storage.read_plan.return_value = plan
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
@@ -1600,8 +1725,11 @@ class TestStressConcurrency:
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir), concurrency=4)
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1731,7 +1859,9 @@ class TestStorageUnderConcurrency:
     for all parallel tasks."""
 
     @pytest.mark.asyncio
-    async def test_output_written_for_all_parallel_tasks(self, test_db, _mock_storage, tmp_path):
+    async def test_output_written_for_all_parallel_tasks(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Each parallel task should get its output saved."""
         plan = """\
 # Implementation Plan
@@ -1784,8 +1914,11 @@ Storage test
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         # write_output should be called once per task
@@ -1848,8 +1981,11 @@ Log flush test
         runner = MockRunner(default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         # write_log is called for _flush_log — should be called multiple times
@@ -1909,8 +2045,11 @@ Minimal
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -1965,8 +2104,11 @@ All fail
         runner = MockRunner(results={"1-1": 1, "1-2": 1}, default_delay=0.01)
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -2002,7 +2144,9 @@ All fail
         assert "t1" in runner.spawned
 
     @pytest.mark.asyncio
-    async def test_runner_exception_during_parallel_execution(self, test_db, _mock_storage, tmp_path):
+    async def test_runner_exception_during_parallel_execution(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """If the runner throws during a parallel task, execution should fail gracefully."""
         plan = """\
 # Implementation Plan
@@ -2073,6 +2217,7 @@ Exception handling
             return_value=PartiallyExplodingRunner(),
         ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -2080,7 +2225,9 @@ Exception handling
         assert exc.finished_at is not None
 
     @pytest.mark.asyncio
-    async def test_git_sha_captured_across_waves(self, test_db, _mock_storage, tmp_path):
+    async def test_git_sha_captured_across_waves(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """Git SHA should be captured before and after execution."""
         plan = """\
 # Implementation Plan
@@ -2123,8 +2270,11 @@ Git SHA
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -2132,7 +2282,9 @@ Git SHA
         assert exc.git_sha_after == "deadbeef"
 
     @pytest.mark.asyncio
-    async def test_finished_at_set_on_completion(self, test_db, _mock_storage, tmp_path):
+    async def test_finished_at_set_on_completion(
+        self, test_db, _mock_storage, tmp_path
+    ):
         """finished_at should be set when execution completes."""
         plan = """\
 # Implementation Plan
@@ -2175,8 +2327,11 @@ Timestamps
         runner = MockRunner()
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)
@@ -2228,8 +2383,11 @@ Failure timestamps
         runner = MockRunner(results={"1-1": 1})
         seq_id, exec_id = await _setup(test_db, plan, str(repo_dir))
 
-        with patch("wave_server.engine.execution_manager.get_runner", return_value=runner):
+        with patch(
+            "wave_server.engine.execution_manager.get_runner", return_value=runner
+        ):
             from wave_server.engine.execution_manager import _run_execution
+
             await _run_execution(exec_id, seq_id)
 
         exc = await _get_execution(test_db, exec_id)

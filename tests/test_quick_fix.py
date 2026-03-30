@@ -1,9 +1,21 @@
 """Schema validation tests for QuickFixRequest, QuickFixResponse, StandalonePromoteRequest."""
 
+import asyncio
+import json
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
+from httpx import AsyncClient
 from pydantic import ValidationError
 
-from wave_server.schemas import QuickFixRequest, QuickFixResponse, StandalonePromoteRequest
+from wave_server.engine.runner import AgentRunner
+from wave_server.engine.types import RunnerConfig, RunnerResult
+from wave_server.schemas import (
+    QuickFixRequest,
+    QuickFixResponse,
+    StandalonePromoteRequest,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +92,9 @@ def test_quickfix_request_files_default_empty_list():
 def test_quickfix_request_multiple_files():
     """files accepts a list with multiple entries."""
     r = QuickFixRequest(
-        prompt="p", branch="b", pr_title="t",
+        prompt="p",
+        branch="b",
+        pr_title="t",
         files=["a.py", "b.py", "c/d.py"],
     )
     assert r.files == ["a.py", "b.py", "c/d.py"]
@@ -189,16 +203,6 @@ def test_standalone_promote_request_missing_pr_url():
 # ---------------------------------------------------------------------------
 # Endpoint tests — quick-fix route (synchronous, no DB records)
 # ---------------------------------------------------------------------------
-
-import asyncio
-import json
-from pathlib import Path
-from unittest.mock import patch, AsyncMock
-
-from httpx import AsyncClient
-
-from wave_server.engine.runner import AgentRunner
-from wave_server.engine.types import RunnerConfig, RunnerResult
 
 
 class MockQuickFixRunner:
@@ -349,7 +353,9 @@ async def test_quickfix_endpoint_missing_repo(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_quickfix_endpoint_prompt_includes_files(client: AsyncClient, tmp_path: Path):
+async def test_quickfix_endpoint_prompt_includes_files(
+    client: AsyncClient, tmp_path: Path
+):
     """When files are specified, they appear in the prompt sent to the runner."""
     pid = await _setup_project_with_repo(client, tmp_path)
     runner = MockQuickFixRunner(exit_code=0)

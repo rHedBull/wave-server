@@ -4,6 +4,7 @@ POST /api/v1/projects/{project_id}/quick-fix
 Runs one worker task, commits, pushes, creates PR, optionally promotes.
 Returns the result synchronously.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,7 +21,6 @@ from wave_server.engine.git_worktree import (
     commit_task_output,
     create_execution_worktree,
     get_current_branch,
-    get_current_sha,
     get_remote_url,
     is_git_repo,
     push_branch,
@@ -32,7 +32,7 @@ from wave_server.engine.github_pr import promote_pr as github_promote_pr
 from wave_server.engine.github_pr import create_pr as api_create_pr
 from wave_server.engine.repo_cache import ensure_repo, is_repo_url
 from wave_server.engine.runner import get_runner
-from wave_server.engine.types import RunnerConfig, RunnerResult
+from wave_server.engine.types import RunnerConfig
 from wave_server.models import Project, ProjectContextFile, ProjectRepository
 from wave_server.schemas import QuickFixRequest, QuickFixResponse
 
@@ -111,9 +111,7 @@ async def quick_fix(
 
         # 1b. Has exactly one repo
         repos_result = await db.execute(
-            select(ProjectRepository).where(
-                ProjectRepository.project_id == project_id
-            )
+            select(ProjectRepository).where(ProjectRepository.project_id == project_id)
         )
         repos = repos_result.scalars().all()
         if not repos:
@@ -139,10 +137,14 @@ async def quick_fix(
                     pass
             repo_cwd = await ensure_repo(repo.path, token=clone_token)
             if not repo_cwd:
-                raise HTTPException(status_code=422, detail="Failed to clone/fetch repository")
+                raise HTTPException(
+                    status_code=422, detail="Failed to clone/fetch repository"
+                )
         else:
             if not Path(repo.path).is_dir():
-                raise HTTPException(status_code=422, detail=f"Repository path not found: {repo.path}")
+                raise HTTPException(
+                    status_code=422, detail=f"Repository path not found: {repo.path}"
+                )
             repo_cwd = repo.path
 
         repo_root = repo_cwd
@@ -199,9 +201,12 @@ async def quick_fix(
             project_env["GH_TOKEN"] = github_token
 
         coding_app_auth = create_app_auth(
-            app_id=project_env.get("GITHUB_CODING_APP_ID") or settings.github_coding_app_id,
-            private_key=project_env.get("GITHUB_CODING_APP_KEY") or settings.github_coding_app_key,
-            installation_id=project_env.get("GITHUB_CODING_APP_INSTALL_ID") or settings.github_coding_app_install_id,
+            app_id=project_env.get("GITHUB_CODING_APP_ID")
+            or settings.github_coding_app_id,
+            private_key=project_env.get("GITHUB_CODING_APP_KEY")
+            or settings.github_coding_app_key,
+            installation_id=project_env.get("GITHUB_CODING_APP_INSTALL_ID")
+            or settings.github_coding_app_install_id,
         )
 
         if settings.git_committer_name and "GIT_COMMITTER_NAME" not in project_env:
@@ -239,7 +244,11 @@ async def quick_fix(
 
         # 9. Worker failed
         if result.exit_code != 0 or result.timed_out:
-            error_msg = "Worker timed out" if result.timed_out else f"Worker failed (exit {result.exit_code})"
+            error_msg = (
+                "Worker timed out"
+                if result.timed_out
+                else f"Worker failed (exit {result.exit_code})"
+            )
             if result.stderr:
                 error_msg += f": {result.stderr}"
             return QuickFixResponse(
@@ -285,9 +294,7 @@ async def quick_fix(
                         if m:
                             owner, repo_name = m.group(1), m.group(2)
                             target_branch = (
-                                body.source_branch
-                                or settings.github_pr_target
-                                or "dev"
+                                body.source_branch or settings.github_pr_target or "dev"
                             )
                             created_url, pr_err = await api_create_pr(
                                 push_token,
@@ -314,13 +321,19 @@ async def quick_fix(
                                     )
                                     if review_app_auth:
                                         try:
-                                            review_token = await review_app_auth.get_token()
+                                            review_token = (
+                                                await review_app_auth.get_token()
+                                            )
                                             promote_result = await github_promote_pr(
-                                                review_token, pr_url, promotion_target="main"
+                                                review_token,
+                                                pr_url,
+                                                promotion_target="main",
                                             )
                                             if promote_result.success:
                                                 promoted = True
-                                                promotion_pr_url = promote_result.promotion_pr_url
+                                                promotion_pr_url = (
+                                                    promote_result.promotion_pr_url
+                                                )
                                         except Exception:
                                             pass
 

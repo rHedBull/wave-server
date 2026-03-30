@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from pathlib import Path
 from urllib.parse import urlparse
 
 
@@ -95,8 +94,10 @@ def _build_auth_env(token: str | None) -> dict[str, str] | None:
     # For HTTPS auth, git calls GIT_ASKPASS twice: once for username, once for password.
     # Using the credential helper approach instead:
     env["GIT_CONFIG_COUNT"] = "1"
-    env["GIT_CONFIG_KEY_0"] = f"credential.https://github.com.helper"
-    env["GIT_CONFIG_VALUE_0"] = f"!f() {{ echo username=x-access-token; echo password={token}; }}; f"
+    env["GIT_CONFIG_KEY_0"] = "credential.https://github.com.helper"
+    env["GIT_CONFIG_VALUE_0"] = (
+        f"!f() {{ echo username=x-access-token; echo password={token}; }}; f"
+    )
     return env
 
 
@@ -108,7 +109,8 @@ async def _run_git(
     Stderr is sanitized to remove any accidentally embedded tokens.
     """
     proc = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         cwd=cwd,
         env=env,
         stdout=asyncio.subprocess.PIPE,
@@ -171,7 +173,9 @@ async def _ensure_repo_locked(
         # Ensure remote URL is clean (no embedded tokens from previous runs)
         await _run_git(["remote", "set-url", "origin", clean_url], local_path)
 
-        code, _, err = await _run_git(["fetch", "--all", "--prune"], local_path, env=auth_env)
+        code, _, err = await _run_git(
+            ["fetch", "--all", "--prune"], local_path, env=auth_env
+        )
         if code != 0:
             return None, f"git fetch failed: {err}"
 

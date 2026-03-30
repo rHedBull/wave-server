@@ -19,29 +19,17 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from wave_server import storage
 from wave_server.config import settings
-
-_callback_log = logging.getLogger("wave_server.callback")
+from wave_server.config import settings as server_settings
 from wave_server.db import async_session
-from wave_server.engine.execution_logger import ExecutionLogger
-from wave_server.engine.log_parser import format_task_log, parse_pi_json, parse_stream_json
-from wave_server.engine.plan_parser import parse_plan
 from wave_server.engine.dag import validate_plan
-from wave_server.engine.runner import get_runner
-from wave_server.engine.state import (
-    create_initial_state,
-    mark_task_done,
-    mark_task_failed,
-    state_to_json,
-)
-from wave_server.engine.types import ProgressUpdate, Task, TaskResult
+from wave_server.engine.execution_logger import ExecutionLogger
+from wave_server.engine.github_app import create_app_auth
 from wave_server.engine.git_worktree import (
-    branch_exists,
     build_signing_env,
-    checkout_branch,
     create_execution_worktree,
     create_pr,
-    create_work_branch,
     get_current_branch,
     get_current_sha,
     get_remote_url,
@@ -51,13 +39,35 @@ from wave_server.engine.git_worktree import (
     remove_execution_worktree,
     sha_exists,
 )
-from wave_server.config import settings as server_settings
-from wave_server.engine.github_app import create_app_auth
-from wave_server.engine.repo_cache import is_repo_url, ensure_repo
+from wave_server.engine.log_parser import (
+    format_task_log,
+    parse_pi_json,
+    parse_stream_json,
+)
+from wave_server.engine.plan_parser import parse_plan
 from wave_server.engine.rate_limit import RateLimitAwareRunner, RateLimitPauser
-from wave_server.engine.wave_executor import WaveExecutorOptions, execute_wave, _build_task_prompt
-from wave_server.models import Event, Execution, ProjectContextFile, ProjectRepository, Sequence
-from wave_server import storage
+from wave_server.engine.repo_cache import is_repo_url, ensure_repo
+from wave_server.engine.runner import get_runner
+from wave_server.engine.state import (
+    create_initial_state,
+    mark_task_done,
+    mark_task_failed,
+)
+from wave_server.engine.types import Task, TaskResult
+from wave_server.engine.wave_executor import (
+    WaveExecutorOptions,
+    execute_wave,
+    _build_task_prompt,
+)
+from wave_server.models import (
+    Event,
+    Execution,
+    ProjectContextFile,
+    ProjectRepository,
+    Sequence,
+)
+
+_callback_log = logging.getLogger("wave_server.callback")
 
 # Track active execution tasks
 _active_tasks: dict[str, asyncio.Task] = {}
@@ -101,7 +111,10 @@ def _get_git_sha(cwd: str) -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=cwd, capture_output=True, text=True, timeout=5,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return result.stdout.strip() if result.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired):
@@ -124,7 +137,9 @@ async def launch_execution(
     their downstream dependents when *rerun_cascade* is True) are re-executed.
     """
     task = asyncio.create_task(
-        _run_execution(execution_id, sequence_id, continue_from, rerun_task_ids, rerun_cascade)
+        _run_execution(
+            execution_id, sequence_id, continue_from, rerun_task_ids, rerun_cascade
+        )
     )
     _active_tasks[execution_id] = task
     task.add_done_callback(lambda _: _active_tasks.pop(execution_id, None))
@@ -172,7 +187,9 @@ async def _fire_callback(
             resp = await client.post(callback_url, json=payload)
             _callback_log.info(
                 "Callback to %s: status=%d payload=%s",
-                callback_url, resp.status_code, json.dumps(payload),
+                callback_url,
+                resp.status_code,
+                json.dumps(payload),
             )
     except Exception as e:
         _callback_log.warning("Callback to %s failed: %s", callback_url, e)
@@ -197,9 +214,7 @@ async def _emit_event(
     await db.commit()
 
 
-async def _get_completed_task_ids(
-    db: AsyncSession, execution_id: str
-) -> set[str]:
+async def _get_completed_task_ids(db: AsyncSession, execution_id: str) -> set[str]:
     """Return the set of task IDs that completed successfully in a previous execution."""
     result = await db.execute(
         select(Event.task_id)
@@ -244,7 +259,9 @@ async def _run_execution(
                 execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
-                    db, execution_id, "run_completed",
+                    db,
+                    execution_id,
+                    "run_completed",
                     payload={"passed": False, "error": "No plan found"},
                 )
                 return
@@ -257,14 +274,21 @@ async def _run_execution(
                 execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
-                    db, execution_id, "run_completed",
-                    payload={"passed": False, "error": f"Plan validation failed: {'; '.join(errors)}"},
+                    db,
+                    execution_id,
+                    "run_completed",
+                    payload={
+                        "passed": False,
+                        "error": f"Plan validation failed: {'; '.join(errors)}",
+                    },
                 )
                 return
 
             # Update execution metadata
             total_tasks = sum(
-                len(w.foundation) + sum(len(f.tasks) for f in w.features) + len(w.integration)
+                len(w.foundation)
+                + sum(len(f.tasks) for f in w.features)
+                + len(w.integration)
                 for w in plan.waves
             )
             execution.status = "running"
@@ -289,12 +313,14 @@ async def _run_execution(
             if settings.default_model_test_writer:
                 server_agent_models["test-writer"] = settings.default_model_test_writer
             if settings.default_model_wave_verifier:
-                server_agent_models["wave-verifier"] = settings.default_model_wave_verifier
+                server_agent_models["wave-verifier"] = (
+                    settings.default_model_wave_verifier
+                )
 
-            exec_agent_models: dict[str, str] | None = (
-                {**server_agent_models, **(config.get("agent_models") or {})}
-                or None
-            )
+            exec_agent_models: dict[str, str] | None = {
+                **server_agent_models,
+                **(config.get("agent_models") or {}),
+            } or None
             spec_content = storage.read_spec(sequence_id) or ""
 
             # ── Rate-limit pause-and-resume ────────────────────
@@ -305,6 +331,7 @@ async def _run_execution(
             _log_ref: dict = {"logger": None, "flush": None}
 
             if settings.rate_limit_enabled:
+
                 async def _on_rate_limit_pause(wait_seconds: int, resume_at: datetime):
                     wait_min = wait_seconds // 60
                     resume_str = resume_at.strftime("%H:%M UTC")
@@ -320,7 +347,9 @@ async def _run_execution(
                         execution.paused_until = resume_at
                         await db.commit()
                         await _emit_event(
-                            db, execution_id, "execution_paused",
+                            db,
+                            execution_id,
+                            "execution_paused",
                             payload={
                                 "wait_seconds": wait_seconds,
                                 "resume_at": resume_at.isoformat(),
@@ -329,7 +358,9 @@ async def _run_execution(
 
                 async def _on_rate_limit_resume():
                     if _log_ref["logger"]:
-                        _log_ref["logger"].log("▶️  **Resuming** — rate limit window reset")
+                        _log_ref["logger"].log(
+                            "▶️  **Resuming** — rate limit window reset"
+                        )
                         if _log_ref["flush"]:
                             _log_ref["flush"]()
                     async with db_lock:
@@ -337,7 +368,9 @@ async def _run_execution(
                         execution.paused_until = None
                         await db.commit()
                         await _emit_event(
-                            db, execution_id, "execution_resumed",
+                            db,
+                            execution_id,
+                            "execution_resumed",
                         )
 
                 pauser = RateLimitPauser(
@@ -364,11 +397,13 @@ async def _run_execution(
                 execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
-                    db, execution_id, "run_completed",
+                    db,
+                    execution_id,
+                    "run_completed",
                     payload={
                         "passed": False,
                         "error": "No repository configured for this project. "
-                                 "Register one via POST /api/v1/projects/{project_id}/repositories",
+                        "Register one via POST /api/v1/projects/{project_id}/repositories",
                     },
                 )
                 return
@@ -390,14 +425,21 @@ async def _run_execution(
                         pass
 
                 repos_dir = str((settings.data_dir / "repos").resolve())
-                repo_cwd, clone_err = await ensure_repo(repo.path, repos_dir, clone_token)
+                repo_cwd, clone_err = await ensure_repo(
+                    repo.path, repos_dir, clone_token
+                )
                 if not repo_cwd:
                     execution.status = "failed"
                     execution.finished_at = datetime.now(timezone.utc)
                     await db.commit()
                     await _emit_event(
-                        db, execution_id, "run_completed",
-                        payload={"passed": False, "error": f"Failed to sync repo: {clone_err}"},
+                        db,
+                        execution_id,
+                        "run_completed",
+                        payload={
+                            "passed": False,
+                            "error": f"Failed to sync repo: {clone_err}",
+                        },
                     )
                     return
             else:
@@ -408,7 +450,9 @@ async def _run_execution(
                 execution.finished_at = datetime.now(timezone.utc)
                 await db.commit()
                 await _emit_event(
-                    db, execution_id, "run_completed",
+                    db,
+                    execution_id,
+                    "run_completed",
                     payload={
                         "passed": False,
                         "error": f"Repository path not found: {repo.path}",
@@ -434,8 +478,13 @@ async def _run_execution(
                         execution.finished_at = datetime.now(timezone.utc)
                         await db.commit()
                         await _emit_event(
-                            db, execution_id, "run_completed",
-                            payload={"passed": False, "error": f"Source SHA {execution.source_sha} not found in repo"},
+                            db,
+                            execution_id,
+                            "run_completed",
+                            payload={
+                                "passed": False,
+                                "error": f"Source SHA {execution.source_sha} not found in repo",
+                            },
                         )
                         return
                 else:
@@ -462,8 +511,13 @@ async def _run_execution(
                     execution.finished_at = datetime.now(timezone.utc)
                     await db.commit()
                     await _emit_event(
-                        db, execution_id, "run_completed",
-                        payload={"passed": False, "error": f"Cannot create work branch: {err}"},
+                        db,
+                        execution_id,
+                        "run_completed",
+                        payload={
+                            "passed": False,
+                            "error": f"Cannot create work branch: {err}",
+                        },
                     )
                     return
 
@@ -486,6 +540,7 @@ async def _run_execution(
 
             # Load project environment variables
             from wave_server.models import Project
+
             project = await db.get(Project, sequence.project_id)
             project_env: dict[str, str] = {}
             if project and project.env_vars:
@@ -499,30 +554,40 @@ async def _run_execution(
                 project_env["ANTHROPIC_MODEL"] = server_settings.default_model
 
             # Inject server-wide GitHub token (project env can override)
-            github_token = project_env.get("GITHUB_TOKEN") or server_settings.github_token
+            github_token = (
+                project_env.get("GITHUB_TOKEN") or server_settings.github_token
+            )
             if github_token and "GITHUB_TOKEN" not in project_env:
                 project_env["GITHUB_TOKEN"] = github_token
                 project_env["GH_TOKEN"] = github_token
 
             # Resolve coding-bot app auth for push+PR (project env > server config)
             coding_app_auth = create_app_auth(
-                app_id=project_env.get("GITHUB_CODING_APP_ID") or server_settings.github_coding_app_id,
-                private_key=project_env.get("GITHUB_CODING_APP_KEY") or server_settings.github_coding_app_key,
-                installation_id=project_env.get("GITHUB_CODING_APP_INSTALL_ID") or server_settings.github_coding_app_install_id,
+                app_id=project_env.get("GITHUB_CODING_APP_ID")
+                or server_settings.github_coding_app_id,
+                private_key=project_env.get("GITHUB_CODING_APP_KEY")
+                or server_settings.github_coding_app_key,
+                installation_id=project_env.get("GITHUB_CODING_APP_INSTALL_ID")
+                or server_settings.github_coding_app_install_id,
             )
 
             # Resolve PR target branch (project env > server config > source branch)
             pr_target_branch = (
-                project_env.get("GITHUB_PR_TARGET")
-                or server_settings.github_pr_target
+                project_env.get("GITHUB_PR_TARGET") or server_settings.github_pr_target
                 # fallback to source_branch happens at PR creation time
             )
 
             # Inject git identity for agent commits
-            if server_settings.git_committer_name and "GIT_COMMITTER_NAME" not in project_env:
+            if (
+                server_settings.git_committer_name
+                and "GIT_COMMITTER_NAME" not in project_env
+            ):
                 project_env["GIT_COMMITTER_NAME"] = server_settings.git_committer_name
                 project_env["GIT_AUTHOR_NAME"] = server_settings.git_committer_name
-            if server_settings.git_committer_email and "GIT_COMMITTER_EMAIL" not in project_env:
+            if (
+                server_settings.git_committer_email
+                and "GIT_COMMITTER_EMAIL" not in project_env
+            ):
                 project_env["GIT_COMMITTER_EMAIL"] = server_settings.git_committer_email
                 project_env["GIT_AUTHOR_EMAIL"] = server_settings.git_committer_email
 
@@ -538,7 +603,9 @@ async def _run_execution(
             await db.commit()
 
             await _emit_event(
-                db, execution_id, "branch_created",
+                db,
+                execution_id,
+                "branch_created",
                 payload={
                     "source_branch": execution.source_branch,
                     "source_sha": execution.source_sha,
@@ -557,7 +624,10 @@ async def _run_execution(
                 # For rerun: remove dirty tasks from the skip set
                 if rerun_task_ids:
                     from wave_server.engine.dag import compute_dirty_closure
-                    dirty = compute_dirty_closure(plan, rerun_task_ids, cascade=rerun_cascade)
+
+                    dirty = compute_dirty_closure(
+                        plan, rerun_task_ids, cascade=rerun_cascade
+                    )
                     skip_task_ids -= dirty
 
                 # Pre-mark completed tasks in state so DAG dependencies are satisfied
@@ -610,7 +680,9 @@ async def _run_execution(
                     await db.commit()
 
                     await _emit_event(
-                        db, execution_id, "phase_changed",
+                        db,
+                        execution_id,
+                        "phase_changed",
                         payload={"wave_index": wave_idx, "wave_name": wave.name},
                     )
 
@@ -622,9 +694,17 @@ async def _run_execution(
                     _flush_log()
                     async with db_lock:
                         await _emit_event(
-                            db, execution_id, "task_started",
-                            task_id=task.id, phase=phase,
-                            payload={"task_id": task.id, "title": task.title, "agent": task.agent, "phase": phase},
+                            db,
+                            execution_id,
+                            "task_started",
+                            task_id=task.id,
+                            phase=phase,
+                            payload={
+                                "task_id": task.id,
+                                "title": task.title,
+                                "agent": task.agent,
+                                "phase": phase,
+                            },
                         )
 
                 async def on_task_end(phase: str, task: Task, result: TaskResult):
@@ -634,8 +714,12 @@ async def _run_execution(
                     # Log to execution logger
                     exec_logger.task_ended(phase, task, result)
 
-                    event_type = "task_completed" if result.exit_code == 0 else (
-                        "task_skipped" if result.exit_code == -1 else "task_failed"
+                    event_type = (
+                        "task_completed"
+                        if result.exit_code == 0
+                        else (
+                            "task_skipped" if result.exit_code == -1 else "task_failed"
+                        )
                     )
                     # Save task output (extracted final result)
                     if result.output:
@@ -651,10 +735,18 @@ async def _run_execution(
                             f"Exit code: {result.exit_code}\n"
                             f"---\n"
                         )
-                        storage.write_transcript(execution_id, task.id, header + result.stdout)
+                        storage.write_transcript(
+                            execution_id, task.id, header + result.stdout
+                        )
                     # Write structured task log (human-readable) + collect cost
                     try:
-                        prompt = _build_task_prompt(task, spec_content, plan.data_schemas, plan.project_structure, plan.environment)
+                        prompt = _build_task_prompt(
+                            task,
+                            spec_content,
+                            plan.data_schemas,
+                            plan.project_structure,
+                            plan.environment,
+                        )
                         if execution.runtime == "pi":
                             parsed = parse_pi_json(result.stdout or "")
                         else:
@@ -671,7 +763,9 @@ async def _run_execution(
                             parsed=parsed,
                             extracted_output=result.output,
                         )
-                        storage.write_task_log(execution_id, task.id, task_log, task.agent)
+                        storage.write_task_log(
+                            execution_id, task.id, task_log, task.agent
+                        )
                         # Accumulate cost/tokens into execution logger
                         exec_logger.add_cost(
                             parsed.total_cost_usd,
@@ -684,8 +778,11 @@ async def _run_execution(
                     # Serialize all DB writes under lock to prevent SQLite contention
                     async with db_lock:
                         await _emit_event(
-                            db, execution_id, event_type,
-                            task_id=task.id, phase=phase,
+                            db,
+                            execution_id,
+                            event_type,
+                            task_id=task.id,
+                            phase=phase,
                             payload={
                                 "task_id": task.id,
                                 "exit_code": result.exit_code,
@@ -734,15 +831,23 @@ async def _run_execution(
 
                 async with db_lock:
                     # Save waves state
-                    execution.waves_state = json.dumps({
-                        "waves": [
-                            {"name": wave.name, "index": wave_idx, "passed": wave_result.passed}
-                        ]
-                    })
+                    execution.waves_state = json.dumps(
+                        {
+                            "waves": [
+                                {
+                                    "name": wave.name,
+                                    "index": wave_idx,
+                                    "passed": wave_result.passed,
+                                }
+                            ]
+                        }
+                    )
                     await db.commit()
 
                     await _emit_event(
-                        db, execution_id, "wave_completed",
+                        db,
+                        execution_id,
+                        "wave_completed",
                         payload={"wave_name": wave.name, "passed": wave_result.passed},
                     )
 
@@ -758,7 +863,12 @@ async def _run_execution(
             pr_url: str | None = None
             pr_error: str | None = None
 
-            if all_passed and use_git and execution.work_branch and execution.source_branch:
+            if (
+                all_passed
+                and use_git
+                and execution.work_branch
+                and execution.source_branch
+            ):
                 # Resolve token: coding-bot app > static github_token
                 push_token = github_token
                 if coding_app_auth:
@@ -772,7 +882,8 @@ async def _run_execution(
                     remote_url = await get_remote_url(repo_cwd)
                     if remote_url:
                         push_ok, push_err = await push_branch(
-                            repo_cwd, execution.work_branch,
+                            repo_cwd,
+                            execution.work_branch,
                             github_token=push_token,
                         )
                         if push_ok:
@@ -793,9 +904,7 @@ async def _run_execution(
                                 initiated_by = _config.get("initiated_by")
                                 reason = _config.get("reason")
 
-                                pr_body = (
-                                    f"Automated PR from wave execution `{execution_id[:8]}`.\n\n"
-                                )
+                                pr_body = f"Automated PR from wave execution `{execution_id[:8]}`.\n\n"
                                 if initiated_by or reason:
                                     pr_body += "## Provenance\n"
                                     if initiated_by:
@@ -827,7 +936,9 @@ async def _run_execution(
                         else:
                             pr_error = push_err
                     else:
-                        pr_error = "No remote configured — work branch available locally"
+                        pr_error = (
+                            "No remote configured — work branch available locally"
+                        )
 
             # Clean up execution worktree (branch is preserved for push/PR)
             if exec_worktree_dir and repo_root:
@@ -858,13 +969,16 @@ async def _run_execution(
                 run_payload["pr_note"] = pr_error
 
             await _emit_event(
-                db, execution_id, "run_completed",
+                db,
+                execution_id,
+                "run_completed",
                 payload=run_payload,
             )
 
             # Fire callback to external system (e.g. backbone)
             await _fire_callback(
-                config, execution_id,
+                config,
+                execution_id,
                 status="completed" if all_passed else "failed",
                 total_tasks=total_tasks,
                 completed_tasks=completed_count,
@@ -892,7 +1006,9 @@ async def _run_execution(
                     await db2.commit()
             # Fire callback for cancellation
             await _fire_callback(
-                config, execution_id, status="cancelled",
+                config,
+                execution_id,
+                status="cancelled",
             )
             raise
 
@@ -913,11 +1029,15 @@ async def _run_execution(
                         seq.status = "failed"
                     await db2.commit()
                 await _emit_event(
-                    db2, execution_id, "run_completed",
+                    db2,
+                    execution_id,
+                    "run_completed",
                     payload={"passed": False, "error": str(e)},
                 )
             # Fire callback for failure
             await _fire_callback(
-                config, execution_id, status="failed",
+                config,
+                execution_id,
+                status="failed",
                 error=str(e),
             )

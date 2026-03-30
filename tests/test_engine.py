@@ -1,13 +1,10 @@
 """Tests for the wave executor engine integration."""
 
-import asyncio
-
 import pytest
 
 from wave_server.engine.runner import AgentRunner
 from wave_server.engine.types import (
     Feature,
-    Plan,
     RunnerConfig,
     RunnerResult,
     Task,
@@ -42,6 +39,7 @@ class MockRunner:
 
     def extract_final_output(self, stdout: str) -> str:
         import json
+
         for line in stdout.split("\n"):
             try:
                 msg = json.loads(line)
@@ -137,9 +135,11 @@ async def test_execute_wave_callbacks():
         wave_num=1,
         runner=runner,
         on_task_start=lambda phase, task: started_tasks.append(task.id),
-        on_task_end=lambda phase, task, result: ended_tasks.append((task.id, result.exit_code)),
+        on_task_end=lambda phase, task, result: ended_tasks.append(
+            (task.id, result.exit_code)
+        ),
     )
-    result = await execute_wave(opts)
+    await execute_wave(opts)
 
     assert "f1" in started_tasks
     assert ("f1", 0) in ended_tasks
@@ -175,6 +175,5 @@ def test_state_mark_tasks():
 
 
 def test_mock_runner_is_agent_runner():
-    from wave_server.engine.runner import AgentRunner
     runner = MockRunner()
     assert isinstance(runner, AgentRunner)

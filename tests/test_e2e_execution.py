@@ -24,12 +24,14 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from wave_server.db import Base, get_db
 from wave_server.engine.runner import AgentRunner
 from wave_server.engine.types import RunnerConfig, RunnerResult
 from wave_server.main import app
+
+from pi_test_helpers import RateLimitPiMockRunner
 
 
 # ── Mock Runner ────────────────────────────────────────────────
@@ -270,6 +272,7 @@ async def e2e_client(tmp_path: Path):
     # execution_manager does `from wave_server.db import async_session` so
     # it has its own reference — we must patch it there too.
     import wave_server.engine.execution_manager as em_mod
+
     original_async_session_db = db_mod.async_session
     original_async_session_em = em_mod.async_session
     db_mod.async_session = test_session_factory
@@ -277,6 +280,7 @@ async def e2e_client(tmp_path: Path):
 
     # Point storage at tmp_path so artifacts don't pollute real data
     from wave_server.config import settings
+
     original_data_dir = settings.data_dir
     original_rate_limit_enabled = settings.rate_limit_enabled
     settings.data_dir = tmp_path / "data"
@@ -329,7 +333,9 @@ async def _register_repo(client: AsyncClient, project_id: str, repo_path: Path) 
     return r.json()["id"]
 
 
-async def _create_sequence(client: AsyncClient, project_id: str, name: str = "test-seq") -> str:
+async def _create_sequence(
+    client: AsyncClient, project_id: str, name: str = "test-seq"
+) -> str:
     """Create a sequence and return its ID."""
     r = await client.post(
         f"/api/v1/projects/{project_id}/sequences",
@@ -405,7 +411,9 @@ class TestE2ESimplePlan:
             result = await _poll_execution(client, execution_id)
 
         # 3. Verify execution completed successfully
-        assert result["status"] == "completed", f"Expected completed, got {result['status']}"
+        assert result["status"] == "completed", (
+            f"Expected completed, got {result['status']}"
+        )
         assert result["total_tasks"] == 3
         assert result["completed_tasks"] == 3
 
@@ -441,7 +449,9 @@ class TestE2ESimplePlan:
         assert len(r.text) > 0
 
     @pytest.mark.asyncio
-    async def test_prompts_contain_task_details(self, e2e_client: AsyncClient, repo_dir: Path):
+    async def test_prompts_contain_task_details(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
         """Verify that prompts passed to the runner contain task metadata."""
         client = e2e_client
         mock_runner = E2EMockRunner()
@@ -666,7 +676,9 @@ class TestE2EContinueSkipsCompleted:
     """End-to-end tests that continuation skips already-completed tasks."""
 
     @pytest.mark.asyncio
-    async def test_continue_skips_completed_tasks(self, e2e_client: AsyncClient, repo_dir: Path):
+    async def test_continue_skips_completed_tasks(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
         """When task 1-2 fails, continue should skip 1-1 and re-run 1-2 + 1-3."""
         client = e2e_client
 
@@ -892,13 +904,17 @@ class TestE2EContextFiles:
     """End-to-end test that context files are injected into prompts."""
 
     @pytest.mark.asyncio
-    async def test_context_files_in_prompts(self, e2e_client: AsyncClient, repo_dir: Path):
+    async def test_context_files_in_prompts(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
         """Verify project context files appear in task prompts."""
         client = e2e_client
         mock_runner = E2EMockRunner()
 
         # Create architecture doc in repo
-        (repo_dir / "ARCHITECTURE.md").write_text("# Architecture\nMicroservices pattern")
+        (repo_dir / "ARCHITECTURE.md").write_text(
+            "# Architecture\nMicroservices pattern"
+        )
 
         project_id = await _create_project(client)
         await _register_repo(client, project_id, repo_dir)
@@ -930,7 +946,9 @@ class TestE2EArtifacts:
     """End-to-end tests for storage artifact creation."""
 
     @pytest.mark.asyncio
-    async def test_all_artifacts_created(self, e2e_client: AsyncClient, repo_dir: Path, tmp_path: Path):
+    async def test_all_artifacts_created(
+        self, e2e_client: AsyncClient, repo_dir: Path, tmp_path: Path
+    ):
         """Verify that output, transcript, task-log, and execution log are created."""
         client = e2e_client
         mock_runner = E2EMockRunner()
@@ -954,7 +972,9 @@ class TestE2EArtifacts:
 
         # Transcript files
         for task_id in ["1-1", "1-2", "1-3"]:
-            r = await client.get(f"/api/v1/executions/{execution_id}/transcript/{task_id}")
+            r = await client.get(
+                f"/api/v1/executions/{execution_id}/transcript/{task_id}"
+            )
             assert r.status_code == 200, f"Missing transcript for {task_id}"
 
         # Task logs
@@ -970,7 +990,9 @@ class TestE2EArtifacts:
         assert "Wave 1" in log_content or "wave" in log_content.lower()
 
     @pytest.mark.asyncio
-    async def test_task_summary_enrichment(self, e2e_client: AsyncClient, repo_dir: Path):
+    async def test_task_summary_enrichment(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
         """Task summary includes has_output, has_transcript, has_task_log flags."""
         client = e2e_client
         mock_runner = E2EMockRunner()
@@ -1000,7 +1022,9 @@ class TestE2EEdgeCases:
     """Edge cases and robustness tests."""
 
     @pytest.mark.asyncio
-    async def test_empty_plan_fails_gracefully(self, e2e_client: AsyncClient, repo_dir: Path):
+    async def test_empty_plan_fails_gracefully(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
         """A plan without a format version tag should be rejected at preflight."""
         client = e2e_client
 
@@ -1047,7 +1071,9 @@ class TestE2EEdgeCases:
         assert result2["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_wave1_failure_prevents_wave2(self, e2e_client: AsyncClient, repo_dir: Path):
+    async def test_wave1_failure_prevents_wave2(
+        self, e2e_client: AsyncClient, repo_dir: Path
+    ):
         """If wave 1 fails, wave 2 tasks are never spawned."""
         client = e2e_client
         # Fail a task in wave 1 of the multi-wave plan
@@ -1073,8 +1099,6 @@ class TestE2EEdgeCases:
 
 
 # ── Rate Limit Simulation (Pi Runtime) ─────────────────────────
-
-from pi_test_helpers import RateLimitPiMockRunner
 
 assert isinstance(RateLimitPiMockRunner(set()), AgentRunner)
 
@@ -1119,11 +1143,12 @@ class TestE2ERateLimitDetection:
         event_types = [e["event_type"] for e in events]
 
         assert "task_completed" in event_types  # 1-1
-        assert "task_failed" in event_types      # 1-2 (rate limited)
+        assert "task_failed" in event_types  # 1-2 (rate limited)
 
         # Verify the failed task has exit_code != 0
         failed_events = [
-            e for e in events
+            e
+            for e in events
             if e["event_type"] == "task_failed" and e["task_id"] == "1-2"
         ]
         assert len(failed_events) == 1
@@ -1171,5 +1196,7 @@ class TestE2ERateLimitDetection:
         assert failed_events[0]["task_id"] == "1-1"
 
         # No task_completed events since the only task that ran was rate limited
-        started_task_ids = {e["task_id"] for e in events if e["event_type"] == "task_started"}
+        started_task_ids = {
+            e["task_id"] for e in events if e["event_type"] == "task_started"
+        }
         assert started_task_ids == {"1-1"}
