@@ -114,6 +114,7 @@ docs/            Specs, plans, and architecture docs
 
 - [Architecture](docs/architecture.md) — system overview, data model, execution engine, data flow
 - [API Reference](docs/api.md) — all REST endpoints with request/response shapes
+- [GitHub Authentication](docs/github-auth.md) — bot account PAT setup and preflight checks
 - [Implementation Plan](docs/plans/2026-03-03-wave-server.md) — wave-by-wave build plan
 - [Spec](docs/spec/2026-03-03-wave-server.md) — original project specification
 - [Deployment Pipeline Spec](docs/spec/2026-03-03-deployment-pipeline.md) — CI/CD and review agent design
