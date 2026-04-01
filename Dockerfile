@@ -9,9 +9,17 @@ RUN npm ci
 COPY dashboard/ .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# Both processes run in the same container, so the dashboard
-# uses the source-code defaults (http://localhost:9718/api/v1).
-# Do NOT set NEXT_PUBLIC_API_* here — Next.js bakes them at build time.
+
+# Configure dashboard paths for reverse proxy deployment.
+# basePath: Next.js serves from /wave/dashboard
+# API URLs: relative so browser uses same origin (reverse proxy routes /wave/api/*)
+ARG NEXT_PUBLIC_BASE_PATH=/wave/dashboard
+ARG NEXT_PUBLIC_API_URL=/wave/api/v1
+ARG NEXT_PUBLIC_API_BASE=/wave/api
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+
 RUN npm run build
 
 ### ── Stage 2: Combined backend + dashboard ───────────────────────────
