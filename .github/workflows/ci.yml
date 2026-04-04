@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main, dev]
+    tags:
+      - 'v*'
   pull_request:
     branches: [main, dev]
 
@@ -94,9 +96,22 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Compute version
+        id: version
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          else
+            BRANCH=${GITHUB_REF_NAME//\//-}
+            echo "version=${BRANCH}-${SHA_SHORT}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -105,3 +120,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}

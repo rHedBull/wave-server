@@ -62,6 +62,10 @@ COPY agents/ ./agents/
 # Create data directory
 RUN mkdir -p /app/data
 
+# Version: set at build time, read by wave_server.__init__
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
 # Set default git identity for commits inside the container
 RUN git config --global user.name "wave-bot" \
     && git config --global user.email "wave-bot@pi-legion"
