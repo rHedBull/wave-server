@@ -69,12 +69,24 @@ RUN mkdir -p /app/data
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
-# Set default git identity for commits inside the container
-RUN git config --global user.name "wave-bot" \
-    && git config --global user.email "wave-bot@pi-legion"
-
 # Supervisor config to run both processes
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create non-root user. Required because the claude CLI refuses to run with
+# `--dangerously-skip-permissions` (which the wave runner hardcodes) under
+# root/sudo. UID 1000 also matches the typical host user so bind-mounted
+# credentials (e.g. ~/.claude) keep their permissions.
+RUN useradd --create-home --uid 1000 --shell /bin/bash wave \
+    && chown -R wave:wave /app \
+    && mkdir -p /var/log/supervisor /var/run/supervisor \
+    && chown -R wave:wave /var/log/supervisor /var/run/supervisor
+
+# Set default git identity for commits — must run as the target user so the
+# config lands in /home/wave/.gitconfig, not /root/.gitconfig.
+USER wave
+ENV HOME=/home/wave
+RUN git config --global user.name "wave-bot" \
+    && git config --global user.email "wave-bot@pi-legion"
 
 # Backend: 9718, Dashboard: 9719
 EXPOSE 9718 9719
