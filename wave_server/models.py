@@ -90,7 +90,7 @@ class Execution(Base):
     continued_from: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending")
     trigger: Mapped[str] = mapped_column(String, default="initial")
-    runtime: Mapped[str] = mapped_column(String, default="pi")
+    runtime: Mapped[str] = mapped_column(String, default="claude")
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)
     completed_tasks: Mapped[int] = mapped_column(Integer, default=0)
     current_wave: Mapped[int] = mapped_column(Integer, default=0)
