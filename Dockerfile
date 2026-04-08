@@ -42,6 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install pi CLI globally
 RUN npm install -g @mariozechner/pi-coding-agent
 
+# Install Claude Code CLI (required when WAVE_RUNTIME=claude)
+RUN npm install -g @anthropic-ai/claude-code
+
 # Install uv for fast dependency resolution
 RUN pip install --no-cache-dir uv
 
