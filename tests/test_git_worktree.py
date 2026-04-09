@@ -19,6 +19,7 @@ from wave_server.engine.git_worktree import (
     cleanup_sub_worktrees,
     cleanup_worktrees,
     commit_task_output,
+    create_execution_worktree,
     create_feature_worktree,
     create_sub_worktrees,
     get_current_branch,
@@ -26,6 +27,7 @@ from wave_server.engine.git_worktree import (
     is_git_repo,
     merge_feature_branches,
     merge_sub_worktrees,
+    recover_unmerged_wave_branches,
 )
 
 
@@ -611,3 +613,136 @@ class TestFullWorktreeLifecycle:
         await cleanup_worktrees(repo, [wt])
         current = await get_current_branch(repo)
         assert current == original
+
+
+# ── create_execution_worktree(reset_to=...) + recovery ─────────
+
+
+class TestExecutionWorktreeContinuation:
+    """Regression tests for the continuation-loses-code bug.
+
+    Scenario: a failed run dies before merging its wave-N/<feature>
+    branches.  A continuation must (a) pin the work branch back to a
+    known SHA via reset_to and (b) re-merge any unmerged feature
+    branches into HEAD before tasks resume.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reset_to_pins_existing_branch(self, tmp_path):
+        repo = _init_repo(str(tmp_path / "repo"))
+        good_sha = _git("rev-parse HEAD", repo)
+
+        # Pretend a prior run created the work branch and added a commit.
+        _git("branch wave/exec-aaaa", repo)
+        wt_a, err = await create_execution_worktree(repo, "wave/exec-aaaa", good_sha)
+        assert wt_a, err
+        with open(os.path.join(wt_a, "stale.txt"), "w") as f:
+            f.write("stale\n")
+        _git("add -A", wt_a)
+        _git("commit -m stale", wt_a)
+        stale_sha = _git("rev-parse HEAD", wt_a)
+        assert stale_sha != good_sha
+        await cleanup_worktrees(repo, [])  # no-op, just exercise
+        # Drop the worktree dir so we can re-create it
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", wt_a],
+            cwd=repo,
+            check=False,
+        )
+
+        # Continuation: re-create worktree, this time pinning back to
+        # good_sha via reset_to.  The stale commit must disappear.
+        wt_b, err = await create_execution_worktree(
+            repo, "wave/exec-aaaa", good_sha, reset_to=good_sha
+        )
+        assert wt_b, err
+        head = _git("rev-parse HEAD", wt_b)
+        assert head == good_sha
+        assert not os.path.isfile(os.path.join(wt_b, "stale.txt"))
+
+    @pytest.mark.asyncio
+    async def test_recover_merges_unmerged_feature_branch(self, tmp_path):
+        repo = _init_repo(str(tmp_path / "repo"))
+        base_sha = _git("rev-parse HEAD", repo)
+
+        # Simulate the failed-run end state: a wave/exec-* work branch
+        # at base, plus an orphaned wave-1/<feature> branch with the
+        # only copy of completed-task code.
+        _git("branch wave/exec-bbbb", repo)
+        _git("branch wave-1/concrete-rules", repo)
+        # Create a worktree on the feature branch and commit code there.
+        feat_dir = str(tmp_path / "feat-wt")
+        subprocess.run(
+            ["git", "worktree", "add", feat_dir, "wave-1/concrete-rules"],
+            cwd=repo,
+            check=True,
+        )
+        with open(os.path.join(feat_dir, "rule_engine.py"), "w") as f:
+            f.write("# rule engine\n")
+        _git("add -A", feat_dir)
+        _git("commit -m feature-work", feat_dir)
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", feat_dir],
+            cwd=repo,
+            check=True,
+        )
+
+        # Continuation attaches to the work branch (still at base_sha).
+        wt, err = await create_execution_worktree(
+            repo, "wave/exec-bbbb", base_sha, reset_to=base_sha
+        )
+        assert wt, err
+        assert not os.path.isfile(os.path.join(wt, "rule_engine.py"))
+
+        # Recovery merges the orphaned feature branch into HEAD.
+        results = await recover_unmerged_wave_branches(wt)
+        assert results == {"wave-1/concrete-rules": "merged"}
+        assert os.path.isfile(os.path.join(wt, "rule_engine.py"))
+
+    @pytest.mark.asyncio
+    async def test_recover_skips_already_merged(self, tmp_path):
+        repo = _init_repo(str(tmp_path / "repo"))
+        # Already-merged feature branch points at HEAD.
+        _git("branch wave/exec-cccc", repo)
+        _git("branch wave-1/already", repo)
+        wt, err = await create_execution_worktree(repo, "wave/exec-cccc", "HEAD")
+        assert wt, err
+        results = await recover_unmerged_wave_branches(wt)
+        assert results == {"wave-1/already": "already"}
+
+    @pytest.mark.asyncio
+    async def test_recover_reports_conflict(self, tmp_path):
+        repo = _init_repo(str(tmp_path / "repo"))
+        base_sha = _git("rev-parse HEAD", repo)
+
+        # Work branch makes a change to file.txt
+        _git("branch wave/exec-dddd", repo)
+        wt, err = await create_execution_worktree(repo, "wave/exec-dddd", base_sha)
+        assert wt, err
+        with open(os.path.join(wt, "file.txt"), "w") as f:
+            f.write("work-branch version\n")
+        _git("add -A", wt)
+        _git("commit -m work", wt)
+
+        # Feature branch makes a conflicting change to file.txt
+        _git("branch wave-1/conflicty " + base_sha, repo)
+        feat_dir = str(tmp_path / "feat-conflict")
+        subprocess.run(
+            ["git", "worktree", "add", feat_dir, "wave-1/conflicty"],
+            cwd=repo,
+            check=True,
+        )
+        with open(os.path.join(feat_dir, "file.txt"), "w") as f:
+            f.write("feature-branch version\n")
+        _git("add -A", feat_dir)
+        _git("commit -m feat", feat_dir)
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", feat_dir],
+            cwd=repo,
+            check=True,
+        )
+
+        results = await recover_unmerged_wave_branches(wt)
+        assert results == {"wave-1/conflicty": "conflict"}
+        # Worktree must be left clean (merge aborted)
+        assert not await _has_uncommitted_changes(wt)
