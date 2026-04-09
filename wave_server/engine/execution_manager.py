@@ -35,6 +35,7 @@ from wave_server.engine.git_worktree import (
     has_gh_cli,
     is_git_repo,
     push_branch,
+    recover_unmerged_wave_branches,
     remove_execution_worktree,
     sha_exists,
 )
@@ -211,6 +212,16 @@ async def _emit_event(
     )
     db.add(event)
     await db.commit()
+
+
+def _feature_name_from_branch(branch: str) -> str:
+    """Extract the feature name from a ``wave-N/<feature>`` branch ref.
+
+    Returns the original string if it doesn't match the expected shape.
+    """
+    if "/" in branch and branch.startswith("wave-"):
+        return branch.split("/", 1)[1]
+    return branch
 
 
 async def _get_completed_task_ids(db: AsyncSession, execution_id: str) -> set[str]:
@@ -490,9 +501,18 @@ async def _run_execution(
 
                 start_point = execution.source_sha or source_branch
 
+                # For continuations, pin the work branch to the prior
+                # execution's known-good tip so we don't silently inherit a
+                # stale or partial branch ref.  See create_execution_worktree.
+                reset_to: str | None = None
+                if continue_from:
+                    prior_exec = await db.get(Execution, continue_from)
+                    if prior_exec and prior_exec.git_sha_after:
+                        reset_to = prior_exec.git_sha_after
+
                 # Use a worktree so the user's working tree is never disturbed.
                 wt_dir, err = await create_execution_worktree(
-                    repo_cwd, work_branch, start_point
+                    repo_cwd, work_branch, start_point, reset_to=reset_to
                 )
                 if not wt_dir:
                     execution.status = "failed"
@@ -608,10 +628,6 @@ async def _run_execution(
                     )
                     skip_task_ids -= dirty
 
-                # Pre-mark completed tasks in state so DAG dependencies are satisfied
-                for tid in skip_task_ids:
-                    mark_task_done(state, tid)
-
             start_time = time.monotonic()
 
             # ── Execution Logger ───────────────────────────────
@@ -624,6 +640,47 @@ async def _run_execution(
                 wave_count=len(plan.waves),
             )
             exec_logger.execution_started()
+
+            # ── Continuation recovery ──────────────────────────
+            # Re-merge any wave-N/<feature> branches the prior run left
+            # behind (it can die before reaching the merge phase, leaving
+            # completed-task code stranded on feature branches).  For any
+            # branch we can't auto-merge, drop its tasks from the skip set
+            # so they re-run from scratch instead of being silently
+            # marked done with no code on disk.
+            if continue_from and skip_task_ids:
+                async def _log_to_exec(msg: str) -> None:
+                    exec_logger.log(msg)
+
+                recovery = await recover_unmerged_wave_branches(
+                    repo_cwd, on_log=_log_to_exec
+                )
+                conflicted_features = {
+                    _feature_name_from_branch(b)
+                    for b, status in recovery.items()
+                    if status == "conflict"
+                }
+                if conflicted_features:
+                    dropped: set[str] = set()
+                    for wave_idx, wave in enumerate(plan.waves, start=1):
+                        for feature in wave.features:
+                            if feature.name in conflicted_features:
+                                for t in feature.tasks:
+                                    if t.id in skip_task_ids:
+                                        dropped.add(t.id)
+                    if dropped:
+                        skip_task_ids -= dropped
+                        exec_logger.log(
+                            f"♻️  Dropped {len(dropped)} task(s) from skip set "
+                            f"(unrecoverable feature branches: "
+                            f"{', '.join(sorted(conflicted_features))}) — "
+                            f"these will re-run"
+                        )
+
+            # Pre-mark completed tasks in state so DAG dependencies are satisfied
+            if continue_from:
+                for tid in skip_task_ids:
+                    mark_task_done(state, tid)
 
             if skip_task_ids and continue_from:
                 if rerun_task_ids:

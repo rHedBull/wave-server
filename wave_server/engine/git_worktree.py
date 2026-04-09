@@ -736,7 +736,10 @@ async def cleanup_all(
 
 
 async def create_execution_worktree(
-    repo_root: str, branch_name: str, start_point: str
+    repo_root: str,
+    branch_name: str,
+    start_point: str,
+    reset_to: str | None = None,
 ) -> tuple[str | None, str]:
     """Create a git worktree for an execution's work branch.
 
@@ -747,6 +750,12 @@ async def create_execution_worktree(
     If the branch already exists (e.g. continue/rerun), the worktree is
     attached to it.  Otherwise a new branch is created from *start_point*.
 
+    If *reset_to* is provided and the branch already exists, the worktree
+    is hard-reset to that SHA after attachment.  This is used by
+    continuations to pin the work branch to the prior execution's known
+    good tip (typically ``git_sha_after``) regardless of what may have
+    moved the branch ref since.
+
     Returns ``(worktree_dir, error_message)``.  *worktree_dir* is ``None``
     on failure.
     """
@@ -756,7 +765,8 @@ async def create_execution_worktree(
     if os.path.isdir(worktree_dir):
         await _remove_worktree(repo_root, worktree_dir)
 
-    if await branch_exists(repo_root, branch_name):
+    branch_already_existed = await branch_exists(repo_root, branch_name)
+    if branch_already_existed:
         # Branch exists — attach worktree to it
         code, _, err = await _run_git(
             ["worktree", "add", worktree_dir, branch_name], repo_root
@@ -770,7 +780,99 @@ async def create_execution_worktree(
 
     if code != 0:
         return None, f"Failed to create execution worktree for {branch_name}: {err}"
+
+    # Continuation safety net: pin the work branch to the prior run's
+    # known-good tip if requested.  Without this, a continuation silently
+    # picks up whatever the branch ref currently points at, which may be
+    # stale or missing the prior run's commits entirely.
+    if reset_to and branch_already_existed:
+        if await sha_exists(worktree_dir, reset_to):
+            code, _, err = await _run_git(
+                ["reset", "--hard", reset_to], worktree_dir
+            )
+            if code != 0:
+                return None, (
+                    f"Failed to reset {branch_name} to {reset_to[:8]}: {err}"
+                )
+
     return worktree_dir, ""
+
+
+async def recover_unmerged_wave_branches(
+    work_dir: str,
+    on_log: Any | None = None,
+) -> dict[str, str]:
+    """Merge any ``wave-N/<feature>`` branches that aren't yet ancestors
+    of HEAD into the current work branch.
+
+    A failed prior execution can die before reaching the merge phase,
+    leaving feature branches that hold the only copy of completed-task
+    code.  A continuation that just attaches to the work branch would
+    inherit those tasks as "completed" in the database while the actual
+    code lives only on orphaned feature branches — producing a run that
+    reports success but ships an empty diff.
+
+    Returns ``{branch_name: status}`` where status is one of
+    ``"merged"``, ``"already"``, or ``"conflict"``.  Conflicts are
+    aborted; the caller is responsible for dropping the affected
+    feature's tasks from the skip set so they re-run from scratch.
+    """
+    # Note: git's `*` glob does not match `/`, so we need an explicit
+    # `wave-*/*` pattern to find per-feature branches like
+    # ``wave-1/concrete-rules``.
+    code, out, _ = await _run_git(
+        [
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads/wave-*/*",
+        ],
+        work_dir,
+    )
+    if code != 0 or not out.strip():
+        return {}
+
+    # Per-feature branches look like "wave-1/concrete-rules".
+    # Skip the execution's own work branch ("wave/exec-…", which is under
+    # refs/heads/wave/, not refs/heads/wave-*) and any malformed refs.
+    candidates = [
+        b.strip()
+        for b in out.split("\n")
+        if b.strip() and "/" in b and b.startswith("wave-")
+    ]
+
+    results: dict[str, str] = {}
+    for branch in candidates:
+        code, _, _ = await _run_git(
+            ["merge-base", "--is-ancestor", branch, "HEAD"], work_dir
+        )
+        if code == 0:
+            results[branch] = "already"
+            continue
+
+        await _log(on_log, f"♻️  Recovering unmerged feature branch `{branch}`…")
+        code, _, err = await _run_git(
+            [
+                "merge",
+                "--no-ff",
+                branch,
+                "-m",
+                f"pi: recover {branch} during continuation",
+            ],
+            work_dir,
+        )
+        if code == 0:
+            await _log(on_log, f"   ✅ recovered `{branch}`")
+            results[branch] = "merged"
+        else:
+            first_line = err.splitlines()[0] if err else "conflict"
+            await _log(
+                on_log,
+                f"   ⚠️  could not auto-merge `{branch}` ({first_line})",
+            )
+            await _run_git(["merge", "--abort"], work_dir)
+            results[branch] = "conflict"
+
+    return results
 
 
 async def remove_execution_worktree(repo_root: str, worktree_dir: str) -> None:
