@@ -23,7 +23,6 @@ from wave_server.engine.git_worktree import (
     create_feature_worktree,
     create_sub_worktrees,
     get_current_branch,
-    get_current_sha,
     get_repo_root,
     is_git_repo,
     merge_feature_branches,
