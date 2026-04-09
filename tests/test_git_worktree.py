@@ -634,9 +634,7 @@ class TestExecutionWorktreeContinuation:
 
         # Pretend a prior run created the work branch and added a commit.
         _git("branch wave/exec-aaaa", repo)
-        wt_a, err = await create_execution_worktree(
-            repo, "wave/exec-aaaa", good_sha
-        )
+        wt_a, err = await create_execution_worktree(repo, "wave/exec-aaaa", good_sha)
         assert wt_a, err
         with open(os.path.join(wt_a, "stale.txt"), "w") as f:
             f.write("stale\n")
@@ -707,9 +705,7 @@ class TestExecutionWorktreeContinuation:
         # Already-merged feature branch points at HEAD.
         _git("branch wave/exec-cccc", repo)
         _git("branch wave-1/already", repo)
-        wt, err = await create_execution_worktree(
-            repo, "wave/exec-cccc", "HEAD"
-        )
+        wt, err = await create_execution_worktree(repo, "wave/exec-cccc", "HEAD")
         assert wt, err
         results = await recover_unmerged_wave_branches(wt)
         assert results == {"wave-1/already": "already"}
@@ -721,9 +717,7 @@ class TestExecutionWorktreeContinuation:
 
         # Work branch makes a change to file.txt
         _git("branch wave/exec-dddd", repo)
-        wt, err = await create_execution_worktree(
-            repo, "wave/exec-dddd", base_sha
-        )
+        wt, err = await create_execution_worktree(repo, "wave/exec-dddd", base_sha)
         assert wt, err
         with open(os.path.join(wt, "file.txt"), "w") as f:
             f.write("work-branch version\n")

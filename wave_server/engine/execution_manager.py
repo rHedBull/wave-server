@@ -649,6 +649,7 @@ async def _run_execution(
             # so they re-run from scratch instead of being silently
             # marked done with no code on disk.
             if continue_from and skip_task_ids:
+
                 async def _log_to_exec(msg: str) -> None:
                     exec_logger.log(msg)
 

@@ -787,13 +787,9 @@ async def create_execution_worktree(
     # stale or missing the prior run's commits entirely.
     if reset_to and branch_already_existed:
         if await sha_exists(worktree_dir, reset_to):
-            code, _, err = await _run_git(
-                ["reset", "--hard", reset_to], worktree_dir
-            )
+            code, _, err = await _run_git(["reset", "--hard", reset_to], worktree_dir)
             if code != 0:
-                return None, (
-                    f"Failed to reset {branch_name} to {reset_to[:8]}: {err}"
-                )
+                return None, (f"Failed to reset {branch_name} to {reset_to[:8]}: {err}")
 
     return worktree_dir, ""
 
